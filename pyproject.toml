@@ -1,0 +1,40 @@
+[build-system]
+requires = ["flit_core>=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "lcms-adduct-finder"
+version = "0.1.0"
+authors = [
+  { name = "Jihyun Chun", email = "jihyun5311@snu.ac.kr" },
+]
+description = "Automated Targeted Feature Extraction & Adduct Verification Tool for LC-MS Data."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pandas",
+    "openpyxl",
+    "molmass",
+    "scipy",
+    "matplotlib",
+    "numpy",
+    "fisher-py",
+    "pythonnet",
+]
+
+[project.urls]
+Homepage = "https://github.com/SNUFML/lcms-adduct-finder"
+Repository = "https://github.com/SNUFML/lcms-adduct-finder"
+Issues = "https://github.com/SNUFML/lcms-adduct-finder/issues"
+
+[project.scripts]
+lcms-adduct-finder = "main:main"
+
+[tool.flit.module]
+name = "main"
