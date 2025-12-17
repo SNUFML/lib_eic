@@ -17,6 +17,7 @@ class Config:
     # File paths
     raw_data_folder: Path = field(default_factory=lambda: Path("./raw"))
     input_excel: str = "file_list.xlsx"
+    input_sheets: List[str] = field(default_factory=lambda: ["RP", "HILIC"])
     input_sheet: str = "Final"
     output_excel: str = "Final_Result_With_Plots.xlsx"
     export_plot_folder: str = "EIC_Plots_Export"
@@ -59,6 +60,16 @@ class Config:
         if isinstance(self.raw_data_folder, str):
             self.raw_data_folder = Path(self.raw_data_folder)
 
+        # Normalize input_sheets
+        if self.input_sheets is None:
+            self.input_sheets = []
+        elif isinstance(self.input_sheets, str):
+            self.input_sheets = [
+                s.strip() for s in str(self.input_sheets).split(",") if s.strip()
+            ]
+        else:
+            self.input_sheets = [str(s).strip() for s in self.input_sheets if str(s).strip()]
+
         # Validate ms2_match_mode
         if self.ms2_match_mode not in ("rt_linked", "global"):
             raise ValueError(
@@ -86,6 +97,7 @@ class Config:
         return {
             "raw_data_folder": str(self.raw_data_folder),
             "input_excel": self.input_excel,
+            "input_sheets": self.input_sheets,
             "input_sheet": self.input_sheet,
             "output_excel": self.output_excel,
             "export_plot_folder": self.export_plot_folder,

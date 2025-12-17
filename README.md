@@ -85,7 +85,32 @@ python -m lib_eic
 
 ### Input Excel Format
 
-Create an Excel file with a sheet named **`Final`** containing the following columns:
+`lib_eic` supports two input formats (auto-detected by column names).
+
+#### A) Direct m/z format (recommended for EIC plot generation)
+
+The Excel file contains **separate sheets** for chromatography modes:
+- `RP` (Reverse Phase)
+- `HILIC` (Hydrophilic Interaction Liquid Chromatography)
+
+The Excel file may contain merged cells in row 1; headers/data start from **row 2**.
+
+| File name              | mixture | Compound name | Polarity | m/z     |
+|:-----------------------|:--------|:--------------|:---------|:--------|
+| `Library_POS_Mix121`   | 121     | Spermine      | POS      | 203.223 |
+| `Library_POS_Mix121`   | 121     | Putrescine    | POS      | 89.107  |
+| `Library_NEG_Mix121`   | 121     | Glucose       | NEG      | 179.056 |
+
+* **File name**: Partial raw filename prefix used for matching (e.g., matches `File name.raw`, `File name_2nd.raw`, ...)
+* **mixture**: Mixture identifier (used in plot filenames)
+* **Compound name**: Display name for plots and Excel output
+* **Polarity**: `POS` or `NEG`
+* **m/z**: Direct target m/z value
+
+EIC plots are saved under:
+`EIC_Plots_Export/{LC mode}/{Polarity}/{File name}/{Compound name}_{Polarity}_{mixture}{suffix}.png`
+
+#### B) Formula-based format (legacy)
 
 | RawFile         | Mode | Formula        |
 |:----------------|:-----|:---------------|
@@ -136,12 +161,13 @@ Example `config.yaml`:
 ```yaml
 raw_data_folder: "./raw"
 input_excel: "file_list.xlsx"
+input_sheets: ["RP", "HILIC"]
 output_excel: "Final_Result_With_Plots.xlsx"
 ppm_tolerance: 10.0
 min_peak_intensity: 100000
 enable_fitting: true
 enable_plotting: true
-plot_output_folder: "EIC_Plots_Export"
+export_plot_folder: "EIC_Plots_Export"
 max_plots_per_file: 25
 area_method: "sum"  # or "trapz"
 ms2_match_mode: "rt_linked"  # or "global"
@@ -196,10 +222,11 @@ with RawFileReader("sample.raw") as reader:
 
 ### 1. Excel Report (`Final_Result_With_Plots.xlsx`)
 
-* **All_Features Sheet**: Complete data for every detected adduct
-  - Columns: RawFile, Formula, Adduct, m/z, RT_min, Intensity, Area, GaussianScore, PeakQuality, HasMS2
+* **All_Features Sheet**: Complete results table
+  - Formula-based: RawFile, Mode, Formula, Adduct, mz_theoretical, RT_min, Intensity, Area, GaussianScore, PeakQuality, HasMS2
+  - Direct m/z: RawFile, File name, mixture, Compound name, Polarity, mz_target, RT_min, Intensity, Area, GaussianScore, PeakQuality, HasMS2
 
-* **Per-Formula Sheets**: Pivot tables for each formula
+* **Per-Target Sheets**: Pivot tables for each Formula / Compound name
   - **Area Table**: Peak areas across samples and adducts
   - **Retention Time Table**: RT consistency verification across adducts
 
@@ -207,6 +234,7 @@ with RawFileReader("sample.raw") as reader:
 
 Visual validation of detected peaks (when plotting is enabled):
 
+* Direct m/z: `EIC_Plots_Export/{Polarity}/{File name}/{Compound name}_{Polarity}_{mixture}{suffix}.png`
 * **Blue Line**: Raw EIC data
 * **Red Marker**: Apex RT indicator
 * **Dashed Line**: Gaussian fit curve (when fitting is enabled)

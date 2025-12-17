@@ -73,7 +73,17 @@ Examples:
         "-s", "--sheet",
         dest="input_sheet",
         metavar="NAME",
-        help="Sheet name in input Excel file (default: Final)",
+        help=(
+            "Single sheet name in input Excel file (legacy; also sets --sheets). "
+            "Default: Final"
+        ),
+    )
+    io_group.add_argument(
+        "--sheets",
+        dest="input_sheets",
+        metavar="NAME",
+        nargs="+",
+        help="Sheet names to read for direct m/z input (default: RP HILIC)",
     )
 
     # Config options
@@ -187,6 +197,9 @@ def build_config_from_args(args: argparse.Namespace):
         config.raw_data_folder = Path(args.raw_data_folder)
     if args.input_sheet:
         config.input_sheet = args.input_sheet
+        config.input_sheets = [args.input_sheet]
+    if getattr(args, "input_sheets", None):
+        config.input_sheets = list(args.input_sheets)
     if args.ppm_tolerance is not None:
         config.ppm_tolerance = args.ppm_tolerance
     if args.min_peak_intensity is not None:

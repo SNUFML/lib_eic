@@ -143,3 +143,135 @@ def _sanitize_component(value: str) -> str:
     value = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
     value = re.sub(r"_+", "_", value).strip("._")
     return value or "unknown"
+
+
+def save_eic_plot_direct_mz(
+    rt_arr: np.ndarray,
+    int_arr: np.ndarray,
+    compound_name: str,
+    polarity: str,
+    raw_filename: str,
+    mz_val: float,
+    mixture: str,
+    output_folder: str,
+    lc_mode: str = "",
+    file_suffix: str = "",
+    partial_filename: str = "",
+    fit_params: Optional[Tuple[float, float, float]] = None,
+    score: float = 0.0,
+    dpi: int = 120,
+) -> Optional[str]:
+    """Save an EIC plot as a PNG file (direct m/z input format).
+
+    Directory structure:
+        {output_folder}/{lc_mode}/{polarity}/{partial_filename}/
+
+    Filename:
+        {compound_name}_{polarity}_{mixture}{file_suffix}.png
+    """
+    try:
+        import matplotlib.pyplot as plt
+    except ImportError:
+        logger.error("matplotlib is required for plotting")
+        return None
+
+    del fit_params, score  # reserved for future plot overlays
+
+    try:
+        lc_mode_safe = _sanitize_component(lc_mode) if str(lc_mode).strip() else ""
+        polarity = _sanitize_component(polarity)
+        partial_filename_safe = _sanitize_component(partial_filename)
+        plot_dir = os.path.join(
+            output_folder,
+            lc_mode_safe,
+            polarity,
+            partial_filename_safe,
+        )
+        os.makedirs(plot_dir, exist_ok=True)
+
+        # Convert to relative abundance (0-100%)
+        max_int = np.max(int_arr) if int_arr.size > 0 else 1.0
+        if max_int == 0:
+            max_int = 1.0
+        rel_abundance = (int_arr / max_int) * 100.0
+
+        # Calculate apex RT and peak height
+        apex_idx = np.argmax(int_arr) if int_arr.size > 0 else 0
+        apex_rt = rt_arr[apex_idx] if rt_arr.size > 0 else 0.0
+        peak_height = max_int
+
+        fig, ax = plt.subplots(figsize=(9, 4))
+
+        ax.plot(
+            rt_arr,
+            rel_abundance,
+            "b-",
+            label="Raw EIC",
+            linewidth=0.8,
+            alpha=0.7,
+        )
+
+        ax.plot(apex_rt, 100.0, "ro", markersize=6, label="Apex")
+        ax.axvline(x=apex_rt, color="r", linestyle="--", linewidth=0.5, alpha=0.5)
+
+        compound_name_disp = str(compound_name).strip() or "Unknown"
+        lc_mode_disp = str(lc_mode).strip() or "UNK"
+        polarity_disp = str(polarity).strip() or "UNK"
+
+        ax.set_title(
+            f"{compound_name_disp} | {lc_mode_disp} | {polarity_disp} | m/z = {mz_val:.4f}\n"
+            f"File: {raw_filename}",
+            fontsize=10,
+        )
+        ax.set_xlabel("Retention Time (min)")
+        ax.set_ylabel("Relative Abundance (%)")
+
+        ax.legend(loc="upper right", fontsize="small")
+        ax.grid(True, linestyle=":", alpha=0.6)
+
+        plt.subplots_adjust(bottom=0.22)
+
+        annotation_text = (
+            f"Apex RT: {float(apex_rt):.3f} min    |    Peak Height: {float(peak_height):.2e}"
+        )
+        fig.text(
+            0.5,
+            0.06,
+            annotation_text,
+            ha="center",
+            va="top",
+            fontsize=10,
+            bbox=dict(
+                boxstyle="round,pad=0.4",
+                facecolor="lightyellow",
+                edgecolor="gray",
+                alpha=0.9,
+            ),
+        )
+
+        safe_compound = _sanitize_component(compound_name_disp)
+        safe_mixture = _sanitize_component(mixture)
+        if file_suffix:
+            import re
+
+            suffix_text = str(file_suffix)
+            suffix_text = suffix_text.replace("/", "_").replace("\\", "_")
+            suffix_text = re.sub(r"[^A-Za-z0-9._-]+", "_", suffix_text)
+            suffix_text = re.sub(r"_+", "_", suffix_text).strip(".")
+            safe_suffix = suffix_text
+        else:
+            safe_suffix = ""
+
+        save_name = f"{safe_compound}_{polarity_disp}_{safe_mixture}{safe_suffix}.png"
+        save_path = os.path.join(plot_dir, save_name)
+        fig.savefig(save_path, dpi=dpi)
+
+        logger.debug("Saved plot: %s", save_path)
+        return save_path
+
+    except Exception as e:
+        logger.error("Failed to save plot: %s", e)
+        return None
+
+    finally:
+        plt.close("all")

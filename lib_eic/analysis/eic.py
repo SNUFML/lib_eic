@@ -36,6 +36,28 @@ class Target:
         return (self.formula, self.adduct)
 
 
+@dataclass(frozen=True)
+class DirectTarget:
+    """Represents a target for EIC extraction using a direct m/z value.
+
+    Attributes:
+        compound_name: Compound display name.
+        polarity: Ionization polarity ("POS" or "NEG").
+        mz: Target m/z value.
+        mixture: Mixture identifier.
+    """
+
+    compound_name: str
+    polarity: str
+    mz: float
+    mixture: str
+
+    @property
+    def key(self) -> Tuple[str, str, str]:
+        """Get a unique key for this target: (compound_name, polarity, mixture)."""
+        return (self.compound_name, self.polarity, self.mixture)
+
+
 def build_targets(
     formulas: Iterable[str],
     mode: str,
