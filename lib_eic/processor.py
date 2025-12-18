@@ -296,46 +296,31 @@ def process_raw_file(
 
     logger.debug("Built %d targets", len(targets))
 
-    # Try batch extraction first
-    eic_dict: Optional[Dict] = None
-    use_multi = False
-    if reader.has_multi_chromatogram_api():
-        try:
-            target_mzs = [t.mz for t in targets]
-            eic_results = reader.get_chromatograms_batch(
-                target_mzs, config.ppm_tolerance
-            )
-            eic_dict = {t.key: result for t, result in zip(targets, eic_results)}
-            use_multi = True
-            logger.debug("Using batch chromatogram extraction")
-        except Exception as e:
-            logger.debug("Batch extraction failed, falling back to single: %s", e)
-            eic_dict = None
-            use_multi = False
+    if not reader.has_multi_chromatogram_api():
+        raise RuntimeError(
+            "Batch chromatogram extraction is required (multi-chromatogram API unavailable)."
+        )
 
-    plots_saved = 0
+    target_mzs = [t.mz for t in targets]
+    try:
+        eic_results = reader.get_chromatograms_batch(target_mzs, config.ppm_tolerance)
+    except Exception as e:
+        raise RuntimeError(f"Batch chromatogram extraction failed: {e}") from e
+
+    eic_dict = {t.key: result for t, result in zip(targets, eic_results)}
+    logger.debug("Using batch chromatogram extraction")
 
     for target in targets:
         formula = target.formula
         adduct_name = target.adduct
         target_mz = target.mz
 
-        try:
-            # Get EIC
-            if use_multi and eic_dict is not None:
-                eic_data = eic_dict.get(target.key)
-                if eic_data is None:
-                    logger.warning("Missing EIC for target: %s %s", formula, adduct_name)
-                    continue
-                eic_rt, eic_int = eic_data
-            else:
-                eic_rt, eic_int = reader.get_chromatogram(target_mz, config.ppm_tolerance)
-        except Exception as e:
-            logger.warning(
-                "EIC extraction error (%s, %s, %s): %s",
-                filename, formula, adduct_name, e
-            )
+        eic_data = eic_dict.get(target.key)
+        if eic_data is None:
+            logger.warning("Missing EIC for target: %s %s", formula, adduct_name)
             continue
+
+        eic_rt, eic_int = eic_data
 
         max_intensity = float(np.max(eic_int)) if eic_int.size else 0.0
 
@@ -366,7 +351,7 @@ def process_raw_file(
                 quality_label = score_to_quality_label(0.0, fitted=False)
 
             # Save plot if enabled
-            if config.enable_plotting and plots_saved < config.max_plots_per_file:
+            if config.enable_plotting:
                 save_eic_plot(
                     rt_arr=eic_rt,
                     int_arr=eic_int,
@@ -379,7 +364,6 @@ def process_raw_file(
                     score=gauss_score,
                     dpi=config.plot_dpi,
                 )
-                plots_saved += 1
 
         # MS2 matching
         has_ms2 = None
@@ -472,19 +456,17 @@ def process_raw_file_direct_mz(
 
     mz_list = targets_df["m/z"].astype(float).tolist()
 
-    eic_results: Optional[List] = None
-    use_multi = False
-    if reader.has_multi_chromatogram_api():
-        try:
-            eic_results = reader.get_chromatograms_batch(mz_list, config.ppm_tolerance)
-            use_multi = True
-            logger.debug("Using batch chromatogram extraction")
-        except Exception as e:
-            logger.debug("Batch extraction failed, falling back to single: %s", e)
-            eic_results = None
-            use_multi = False
+    if not reader.has_multi_chromatogram_api():
+        raise RuntimeError(
+            "Batch chromatogram extraction is required (multi-chromatogram API unavailable)."
+        )
 
-    plots_saved = 0
+    try:
+        eic_results = reader.get_chromatograms_batch(mz_list, config.ppm_tolerance)
+    except Exception as e:
+        raise RuntimeError(f"Batch chromatogram extraction failed: {e}") from e
+
+    logger.debug("Using batch chromatogram extraction")
 
     for i, row in targets_df.iterrows():
         mz_val = float(row["m/z"])
@@ -505,10 +487,7 @@ def process_raw_file_direct_mz(
         mixture = _normalize_mixture_value(row.get("mixture"))
 
         try:
-            if use_multi and eic_results is not None:
-                eic_rt, eic_int = eic_results[i]
-            else:
-                eic_rt, eic_int = reader.get_chromatogram(mz_val, config.ppm_tolerance)
+            eic_rt, eic_int = eic_results[i]
         except Exception as e:
             logger.warning(
                 "EIC extraction error (%s, %s, %.4f): %s",
@@ -545,7 +524,7 @@ def process_raw_file_direct_mz(
                 gauss_score = 0.0
                 quality_label = score_to_quality_label(0.0, fitted=False)
 
-            if config.enable_plotting and plots_saved < config.max_plots_per_file:
+            if config.enable_plotting:
                 from .io.plotting import save_eic_plot_direct_mz
 
                 save_eic_plot_direct_mz(
@@ -565,7 +544,6 @@ def process_raw_file_direct_mz(
                     score=gauss_score,
                     dpi=config.plot_dpi,
                 )
-                plots_saved += 1
 
         # MS2 matching
         has_ms2 = None

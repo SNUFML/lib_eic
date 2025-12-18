@@ -171,12 +171,11 @@ input_sheets: ["RP", "HILIC"]
 output_excel: "Final_Result_With_Plots.xlsx"
 ppm_tolerance: 10.0
 min_peak_intensity: 100000
-enable_fitting: true
-enable_plotting: true
-export_plot_folder: "EIC_Plots_Export"
-max_plots_per_file: 25
-area_method: "sum"  # or "trapz"
-ms2_match_mode: "rt_linked"  # or "global"
+ enable_fitting: true
+ enable_plotting: true
+ export_plot_folder: "EIC_Plots_Export"
+ area_method: "sum"  # or "trapz"
+ ms2_match_mode: "rt_linked"  # or "global"
 ```
 
 ### Option 3: Python API

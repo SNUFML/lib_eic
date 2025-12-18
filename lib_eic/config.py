@@ -34,7 +34,6 @@ class Config:
 
     # Plotting controls
     enable_plotting: bool = True
-    max_plots_per_file: int = 25
     plot_dpi: int = 120
 
     # MS2 matching settings
@@ -106,7 +105,6 @@ class Config:
             "enable_fitting": self.enable_fitting,
             "fit_rt_window_min": self.fit_rt_window_min,
             "enable_plotting": self.enable_plotting,
-            "max_plots_per_file": self.max_plots_per_file,
             "plot_dpi": self.plot_dpi,
             "ms2_match_mode": self.ms2_match_mode,
             "ms2_rt_window_min": self.ms2_rt_window_min,
