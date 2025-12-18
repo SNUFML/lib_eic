@@ -275,7 +275,7 @@ def process_raw_file(
     # Build MS2 index if available
     ms2_index = None
     ms2_enabled = False
-    if reader.has_scan_events_api():
+    if config.enable_ms2 and reader.has_scan_events_api():
         try:
             ms2_index = build_ms2_index(reader)
             ms2_enabled = True
@@ -424,7 +424,7 @@ def process_raw_file_direct_mz(
     # Build MS2 index if available
     ms2_index = None
     ms2_enabled = False
-    if reader.has_scan_events_api():
+    if config.enable_ms2 and reader.has_scan_events_api():
         try:
             ms2_index = build_ms2_index(reader)
             ms2_enabled = True

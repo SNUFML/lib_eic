@@ -143,8 +143,9 @@ Common options:
 - `--input`: Input Excel file path (default: `file_list.xlsx`)
 - `--output`: Output Excel file path (default: `Final_Result_With_Plots.xlsx`)
 - `--ppm`: Mass tolerance in ppm (default: `10.0`)
-- `--enable-plotting` / `--disable-plotting`: Toggle EIC plot generation
-- `--enable-fitting` / `--disable-fitting`: Toggle Gaussian fitting
+- `--no-plots`: Disable EIC plot generation
+- `--no-fitting`: Disable Gaussian fitting
+- `--no-ms2`: Disable MS2 indexing/matching
 - `-v, --verbose`: Enable verbose output
 - `--help`: Show all available options
 
@@ -173,6 +174,7 @@ ppm_tolerance: 10.0
 min_peak_intensity: 100000
  enable_fitting: true
  enable_plotting: true
+ enable_ms2: true
  export_plot_folder: "EIC_Plots_Export"
  area_method: "sum"  # or "trapz"
  ms2_match_mode: "rt_linked"  # or "global"

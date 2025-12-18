@@ -29,8 +29,8 @@ def sanitize_filename_component(value: str) -> str:
 class RawFileReader:
     """Abstraction layer for reading Thermo .raw files.
 
-    This class wraps fisher_py's RawFile to provide a cleaner interface
-    and handle API differences gracefully.
+    This class wraps fisher_py's low-level RawFileAccess to provide a cleaner interface
+    and avoid expensive eager indexing done by fisher_py's higher-level RawFile wrapper.
     """
 
     def __init__(self, file_path: str):
@@ -47,8 +47,12 @@ class RawFileReader:
             raise FileNotFoundError(f"Raw file not found: {file_path}")
 
         try:
-            from fisher_py import RawFile
-            self._raw = RawFile(file_path)
+            from fisher_py.data import Device
+            from fisher_py.raw_file_reader import RawFileReaderAdapter
+
+            raw_access = RawFileReaderAdapter.file_factory(file_path)
+            raw_access.select_instrument(Device.MS, 1)
+            self._raw_access = raw_access
         except ImportError as e:
             raise ImportError(
                 "fisher-py is required for reading .raw files. "
@@ -72,9 +76,9 @@ class RawFileReader:
 
     def close(self) -> None:
         """Close the raw file."""
-        close_fn = getattr(self._raw, "close", None)
-        if callable(close_fn):
-            close_fn()
+        dispose_fn = getattr(self._raw_access, "dispose", None)
+        if callable(dispose_fn):
+            dispose_fn()
 
     def __enter__(self) -> "RawFileReader":
         """Context manager entry."""
@@ -156,11 +160,23 @@ class RawFileReader:
         Returns:
             Tuple of (rt_minutes, intensity) arrays.
         """
-        from fisher_py.data.business import TraceType
+        from fisher_py.data.business import ChromatogramTraceSettings, TraceType
+        from fisher_py.data.business.mass_options import MassOptions
+        from fisher_py.data.business.range import Range
+        from fisher_py.data.tolerance_units import ToleranceUnits
 
-        rt_arr, int_arr = self._raw.get_chromatogram(
-            target_mz, ppm_tolerance, TraceType.MassRange
-        )
+        mass_opts = MassOptions()
+        mass_opts.tolerance_units = ToleranceUnits.ppm
+        mass_opts.tolerance = float(ppm_tolerance)
+
+        settings = ChromatogramTraceSettings()
+        settings.trace = TraceType.MassRange
+        settings.filter = "ms"
+        settings.mass_ranges = [Range.create(float(target_mz), float(target_mz))]
+
+        chrom_data = self._raw_access.get_chromatogram_data([settings], -1, -1, mass_opts)
+        rt_arr = chrom_data.positions_array[0]
+        int_arr = chrom_data.intensities_array[0]
 
         rt_min = self._normalize_rt_to_minutes(np.asarray(rt_arr, dtype=float))
         intensity = np.asarray(int_arr, dtype=float)
@@ -184,10 +200,7 @@ class RawFileReader:
         Returns:
             True if batch chromatogram extraction is supported.
         """
-        raw_access = getattr(self._raw, "_raw_file_access", None)
-        if raw_access is None:
-            return False
-        get_chrom_data = getattr(raw_access, "get_chromatogram_data", None)
+        get_chrom_data = getattr(self._raw_access, "get_chromatogram_data", None)
         return callable(get_chrom_data)
 
     def get_chromatograms_batch(
@@ -214,14 +227,10 @@ class RawFileReader:
         from fisher_py.data.business.range import Range
         from fisher_py.data.tolerance_units import ToleranceUnits
 
-        raw_access = getattr(self._raw, "_raw_file_access", None)
-        if raw_access is None:
-            raise RuntimeError("Raw file access unavailable")
-
-        get_chrom_data = getattr(raw_access, "get_chromatogram_data", None)
+        get_chrom_data = getattr(self._raw_access, "get_chromatogram_data", None)
         if not callable(get_chrom_data):
             raise RuntimeError(
-                "get_chromatogram_data is unavailable on this RawFile object."
+                "get_chromatogram_data is unavailable on this raw file access object."
             )
 
         mass_opts = MassOptions()
@@ -279,10 +288,7 @@ class RawFileReader:
         Returns:
             True if MS2 scan event access is supported.
         """
-        raw_access = getattr(self._raw, "_raw_file_access", None)
-        if raw_access is None:
-            return False
-        get_scan_events = getattr(raw_access, "get_scan_events", None)
+        get_scan_events = getattr(self._raw_access, "get_scan_events", None)
         return callable(get_scan_events)
 
     def get_scan_range(self) -> Tuple[int, int]:
@@ -294,19 +300,17 @@ class RawFileReader:
         Raises:
             RuntimeError: If scan range cannot be determined.
         """
-        first = getattr(self._raw, "first_scan", None)
-        last = getattr(self._raw, "last_scan", None)
+        try:
+            run_header = getattr(self._raw_access, "run_header", None)
+            if run_header is not None:
+                first = getattr(run_header, "first_spectrum", None)
+                last = getattr(run_header, "last_spectrum", None)
+                if first is not None and last is not None:
+                    return int(first), int(last)
+        except Exception:
+            pass
 
-        if first is None or last is None:
-            first_fn = getattr(self._raw, "first_scan_number", None)
-            last_fn = getattr(self._raw, "last_scan_number", None)
-            if callable(first_fn) and callable(last_fn):
-                first, last = first_fn(), last_fn()
-
-        if first is None or last is None:
-            raise RuntimeError("Unable to determine scan range")
-
-        return int(first), int(last)
+        raise RuntimeError("Unable to determine scan range")
 
     def get_retention_time_from_scan(self, scan_no: int) -> Optional[float]:
         """Get retention time for a scan number.
@@ -319,29 +323,15 @@ class RawFileReader:
         """
         import math
 
-        # Try direct method
-        fn = getattr(self._raw, "get_retention_time_from_scan_number", None)
-        if callable(fn):
+        rt_fn = getattr(self._raw_access, "retention_time_from_scan_number", None)
+        if callable(rt_fn):
             try:
-                rt = float(fn(int(scan_no)))
+                rt = float(rt_fn(int(scan_no)))
                 if not math.isfinite(rt):
                     return None
                 return rt if rt <= 200 else rt / 60.0
             except Exception:
                 pass
-
-        # Try via raw_access
-        raw_access = getattr(self._raw, "_raw_file_access", None)
-        if raw_access is not None:
-            rt_fn = getattr(raw_access, "retention_time_from_scan_number", None)
-            if callable(rt_fn):
-                try:
-                    rt = float(rt_fn(int(scan_no)))
-                    if not math.isfinite(rt):
-                        return None
-                    return rt if rt <= 200 else rt / 60.0
-                except Exception:
-                    pass
 
         return None
 
@@ -358,11 +348,7 @@ class RawFileReader:
         Raises:
             RuntimeError: If scan events API is unavailable.
         """
-        raw_access = getattr(self._raw, "_raw_file_access", None)
-        if raw_access is None:
-            raise RuntimeError("Raw file access unavailable")
-
-        get_scan_events = getattr(raw_access, "get_scan_events", None)
+        get_scan_events = getattr(self._raw_access, "get_scan_events", None)
         if not callable(get_scan_events):
             raise RuntimeError("get_scan_events is unavailable")
 
@@ -377,4 +363,22 @@ class RawFileReader:
         Returns:
             Tuple of (mz_array, intensity_array, charge, scan_event).
         """
-        return self._raw.get_scan_from_scan_number(int(scan_no))
+        from fisher_py.data.filter_enums import MassAnalyzerType
+
+        scan_no = int(scan_no)
+        scan_event = self._raw_access.get_scan_event_for_scan_number(scan_no)
+
+        if getattr(scan_event, "mass_analyzer", None) == MassAnalyzerType.MassAnalyzerFTMS:
+            spectrum = self._raw_access.get_centroid_stream(scan_no, False)
+            mz_array = np.array(spectrum.masses)
+            intensity_array = np.array(spectrum.intensities)
+            charges = np.array(spectrum.charges)
+        else:
+            stats = self._raw_access.get_scan_stats_for_scan_number(scan_no)
+            spectrum = self._raw_access.get_segmented_scan_from_scan_number(scan_no, stats)
+            mz_array = np.array(spectrum.positions)
+            intensity_array = np.array(spectrum.intensities)
+            charges = np.zeros(mz_array.shape)
+
+        scan_event_str = self._raw_access.get_scan_event_string_for_scan_number(scan_no)
+        return mz_array, intensity_array, charges, scan_event_str

@@ -37,6 +37,7 @@ class Config:
     plot_dpi: int = 120
 
     # MS2 matching settings
+    enable_ms2: bool = True
     ms2_match_mode: str = "rt_linked"  # "rt_linked" or "global"
     ms2_rt_window_min: float = 0.30
     store_ms2_match_details: bool = True
@@ -106,6 +107,7 @@ class Config:
             "fit_rt_window_min": self.fit_rt_window_min,
             "enable_plotting": self.enable_plotting,
             "plot_dpi": self.plot_dpi,
+            "enable_ms2": self.enable_ms2,
             "ms2_match_mode": self.ms2_match_mode,
             "ms2_rt_window_min": self.ms2_rt_window_min,
             "store_ms2_match_details": self.store_ms2_match_details,

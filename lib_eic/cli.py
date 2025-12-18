@@ -130,6 +130,12 @@ Examples:
         help="Disable EIC plot generation",
     )
     proc_group.add_argument(
+        "--no-ms2",
+        dest="disable_ms2",
+        action="store_true",
+        help="Disable MS2 indexing/matching",
+    )
+    proc_group.add_argument(
         "--area-method",
         dest="area_method",
         choices=["sum", "trapz"],
@@ -208,6 +214,8 @@ def build_config_from_args(args: argparse.Namespace):
         config.enable_fitting = False
     if args.disable_plotting:
         config.enable_plotting = False
+    if getattr(args, "disable_ms2", False):
+        config.enable_ms2 = False
     if args.area_method:
         config.area_method = args.area_method
     if args.log_file:
