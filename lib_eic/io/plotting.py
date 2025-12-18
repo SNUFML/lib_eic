@@ -145,6 +145,43 @@ def _sanitize_component(value: str) -> str:
     return value or "unknown"
 
 
+def build_direct_mz_plot_filename(
+    compound_name: str,
+    polarity: str,
+    mixture: str,
+    *,
+    file_suffix: str = "",
+    num_prefix: str = "",
+) -> str:
+    """Build a filesystem-safe direct-m/z plot filename (including .png)."""
+    compound_name_disp = str(compound_name).strip() or "Unknown"
+    safe_compound = _sanitize_component(compound_name_disp)
+
+    polarity_safe = _sanitize_component(polarity)
+    polarity_disp = str(polarity_safe).strip() or "UNK"
+
+    safe_mixture = _sanitize_component(mixture)
+
+    if file_suffix:
+        import re
+
+        suffix_text = str(file_suffix)
+        suffix_text = suffix_text.replace("/", "_").replace("\\", "_")
+        suffix_text = re.sub(r"[^A-Za-z0-9._-]+", "_", suffix_text)
+        suffix_text = re.sub(r"_+", "_", suffix_text).strip(".")
+        safe_suffix = suffix_text
+    else:
+        safe_suffix = ""
+
+    prefix_text = str(num_prefix).strip()
+    prefix_text = "" if not prefix_text or prefix_text.lower() == "nan" else prefix_text
+    if prefix_text:
+        safe_prefix = _sanitize_component(prefix_text)
+        return f"{safe_prefix}_{safe_compound}_{polarity_disp}_{safe_mixture}{safe_suffix}.png"
+
+    return f"{safe_compound}_{polarity_disp}_{safe_mixture}{safe_suffix}.png"
+
+
 def save_eic_plot_direct_mz(
     rt_arr: np.ndarray,
     int_arr: np.ndarray,
@@ -160,6 +197,7 @@ def save_eic_plot_direct_mz(
     fit_params: Optional[Tuple[float, float, float]] = None,
     score: float = 0.0,
     dpi: int = 120,
+    num_prefix: str = "",
 ) -> Optional[str]:
     """Save an EIC plot as a PNG file (direct m/z input format).
 
@@ -167,7 +205,7 @@ def save_eic_plot_direct_mz(
         {output_folder}/{lc_mode}/{polarity}/{partial_filename}/
 
     Filename:
-        {compound_name}_{polarity}_{mixture}{file_suffix}.png
+        {num_prefix}_{compound_name}_{polarity}_{mixture}{file_suffix}.png
     """
     try:
         import matplotlib.pyplot as plt
@@ -249,20 +287,13 @@ def save_eic_plot_direct_mz(
             ),
         )
 
-        safe_compound = _sanitize_component(compound_name_disp)
-        safe_mixture = _sanitize_component(mixture)
-        if file_suffix:
-            import re
-
-            suffix_text = str(file_suffix)
-            suffix_text = suffix_text.replace("/", "_").replace("\\", "_")
-            suffix_text = re.sub(r"[^A-Za-z0-9._-]+", "_", suffix_text)
-            suffix_text = re.sub(r"_+", "_", suffix_text).strip(".")
-            safe_suffix = suffix_text
-        else:
-            safe_suffix = ""
-
-        save_name = f"{safe_compound}_{polarity_disp}_{safe_mixture}{safe_suffix}.png"
+        save_name = build_direct_mz_plot_filename(
+            compound_name=compound_name_disp,
+            polarity=polarity_disp,
+            mixture=mixture,
+            file_suffix=file_suffix,
+            num_prefix=num_prefix,
+        )
         save_path = os.path.join(plot_dir, save_name)
         fig.savefig(save_path, dpi=dpi)
 

@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -10,7 +11,7 @@ import pandas as pd
 
 from .config import Config
 from .chemistry.mass import normalize_formula_str
-from .io.raw_file import RawFileReader, sanitize_filename_component
+from .io.raw_file import RawFileReader
 from .io.excel import (
     read_all_lc_mode_sheets,
     read_input_excel,
@@ -55,7 +56,120 @@ def _normalize_mixture_value(value: Any) -> str:
     return text
 
 
-def find_matching_raw_files(partial_filename: str, raw_folder: Path) -> List[Path]:
+def _normalize_num_value(value: Any) -> str:
+    """Normalize numbering values (e.g., 'num' column) into a stable string."""
+    if value is None or pd.isna(value):
+        return ""
+    if isinstance(value, (int, np.integer)):
+        return str(int(value))
+    if isinstance(value, float) and float(value).is_integer():
+        return str(int(value))
+
+    text = str(value).strip()
+    if not text:
+        return ""
+
+    try:
+        f = float(text)
+        if np.isfinite(f) and f.is_integer():
+            return str(int(f))
+    except Exception:
+        pass
+
+    return text
+
+
+def _collect_raw_entries_recursive(raw_folder: Path) -> List[Path]:
+    """Collect ``.raw`` file/directory entries under ``raw_folder`` (recursive).
+
+    Notes:
+        Thermo ``.raw`` can be either a file (common on Linux exports) or a
+        directory (common on Windows). If a ``.raw`` directory is encountered,
+        we treat it as a leaf and **do not** recurse into it.
+    """
+    raw_folder = Path(raw_folder)
+    if not raw_folder.exists():
+        return []
+
+    matches: List[Path] = []
+    try:
+        for root, dirs, files in os.walk(raw_folder):
+            # Treat "*.raw" directories as leaf nodes and do not recurse into them.
+            raw_dirs = [d for d in dirs if str(d).lower().endswith(".raw")]
+            for d in raw_dirs:
+                matches.append(Path(root) / d)
+            dirs[:] = [d for d in dirs if d not in raw_dirs]
+
+            for name in files:
+                if str(name).lower().endswith(".raw"):
+                    matches.append(Path(root) / name)
+    except Exception as e:
+        logger.warning("Failed walking raw folder %s: %s", raw_folder, e)
+        return []
+
+    return sorted(matches, key=lambda p: str(p).lower())
+
+
+def _resolve_lc_mode_raw_folder(raw_root: Path, lc_mode: str) -> Path:
+    """Resolve an LC-mode-specific raw folder if present.
+
+    If ``raw_root/<lc_mode>`` exists (case-insensitive), returns it; otherwise
+    returns ``raw_root``.
+    """
+    raw_root = Path(raw_root)
+    lc_mode_text = str(lc_mode or "").strip()
+    if not lc_mode_text:
+        return raw_root
+
+    direct = raw_root / lc_mode_text
+    if direct.exists():
+        return direct
+
+    try:
+        lc_mode_lower = lc_mode_text.lower()
+        for entry in raw_root.iterdir():
+            if entry.is_dir() and entry.name.lower() == lc_mode_lower:
+                return entry
+    except Exception:
+        return raw_root
+
+    return raw_root
+
+
+def _infer_run_label(raw_file_path: Path, search_root: Path) -> str:
+    """Infer run label (e.g., '1st', '2nd') from folder structure."""
+    try:
+        rel = raw_file_path.relative_to(search_root)
+    except Exception:
+        return ""
+
+    if len(rel.parts) < 2:
+        return ""
+
+    candidate = str(rel.parts[0]).strip()
+    if not candidate:
+        return ""
+
+    if re.fullmatch(r"\d+(st|nd|rd|th)", candidate.lower()):
+        return candidate
+
+    return ""
+
+
+def _build_raw_file_id(raw_file_path: Path, raw_root: Path) -> str:
+    """Build a stable RawFile identifier for output tables."""
+    try:
+        return raw_file_path.relative_to(raw_root).as_posix()
+    except Exception:
+        return raw_file_path.name
+
+
+def find_matching_raw_files(
+    partial_filename: str,
+    raw_folder: Path,
+    *,
+    raw_entries: Optional[List[Path]] = None,
+) -> List[Path]:
     """Find all .raw entries that start with the given partial filename.
 
     Example: "Library_POS_Mix121" matches:
@@ -71,28 +185,40 @@ def find_matching_raw_files(partial_filename: str, raw_folder: Path) -> List[Pat
     if not partial:
         return []
 
-    if not raw_folder.exists():
-        logger.warning("Raw folder not found: %s", raw_folder)
-        return []
+    entries = raw_entries
+    if entries is None:
+        if not raw_folder.exists():
+            logger.warning("Raw folder not found: %s", raw_folder)
+            return []
+
+        try:
+            entries = [p for p in raw_folder.iterdir()]
+        except Exception as e:
+            logger.warning("Failed listing raw folder %s: %s", raw_folder, e)
+            return []
 
     matches: List[Path] = []
     partial_lower = partial.lower()
 
-    try:
-        for entry in raw_folder.iterdir():
-            name = entry.name
-            if not name.lower().endswith(".raw"):
-                continue
-            stem = entry.stem
-            if stem.startswith(partial) or stem.lower().startswith(partial_lower):
+    for entry in entries:
+        name = entry.name
+        if not name.lower().endswith(".raw"):
+            continue
+        stem = entry.stem
+        stem_lower = stem.lower()
+        if stem_lower == partial_lower:
+            matches.append(entry)
+            continue
+        if stem_lower.startswith(partial_lower):
+            # Only treat as a "repeat" match if the suffix is underscore-delimited
+            # (e.g., prevents "Mixture_1" matching "Mixture_10").
+            next_ch = stem_lower[len(partial_lower):len(partial_lower) + 1]
+            if next_ch == "_":
                 matches.append(entry)
-    except Exception as e:
-        logger.warning("Failed listing raw folder %s: %s", raw_folder, e)
-        return []
 
     return sorted(
         matches,
-        key=lambda p: (p.stem.lower() != partial_lower, p.name.lower()),
+        key=lambda p: (p.stem.lower() != partial_lower, p.name.lower(), str(p).lower()),
     )
 
 
@@ -127,6 +253,8 @@ def process_raw_file(
     formulas: List[str],
     mode: str,
     config: Config,
+    *,
+    raw_file_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Process a single raw file and extract features.
 
@@ -139,7 +267,7 @@ def process_raw_file(
     Returns:
         List of result dictionaries.
     """
-    filename = reader.filename
+    filename = str(raw_file_id).strip() if raw_file_id else reader.filename
     logger.info("Processing: %s (%s)", filename, mode)
 
     results: List[Dict[str, Any]] = []
@@ -300,9 +428,11 @@ def process_raw_file_direct_mz(
     partial_filename: str,
     file_suffix: str,
     config: Config,
+    *,
+    raw_file_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """Process a single raw file using direct m/z targets from input Excel."""
-    filename = reader.filename
+    filename = str(raw_file_id).strip() if raw_file_id else reader.filename
     logger.info("Processing: %s (%s)", filename, polarity)
 
     results: List[Dict[str, Any]] = []
@@ -330,6 +460,16 @@ def process_raw_file_direct_mz(
     if targets_df.empty:
         return results
 
+    num_width = 0
+    if "num" in targets_df.columns:
+        num_candidates = []
+        for v in targets_df["num"].tolist():
+            text = _normalize_num_value(v)
+            if text and text.isdigit():
+                num_candidates.append(text)
+        if num_candidates:
+            num_width = max(len(t) for t in num_candidates)
+
     mz_list = targets_df["m/z"].astype(float).tolist()
 
     eic_results: Optional[List] = None
@@ -348,6 +488,14 @@ def process_raw_file_direct_mz(
 
     for i, row in targets_df.iterrows():
         mz_val = float(row["m/z"])
+
+        num_prefix = ""
+        if num_width and "num" in targets_df.columns:
+            num_text = _normalize_num_value(row.get("num"))
+            if num_text and num_text.isdigit():
+                num_prefix = num_text.zfill(num_width)
+            else:
+                num_prefix = num_text
 
         compound_raw = row.get("Compound name")
         compound_name = "" if pd.isna(compound_raw) else str(compound_raw).strip()
@@ -409,6 +557,7 @@ def process_raw_file_direct_mz(
                     mz_val=mz_val,
                     mixture=mixture,
                     output_folder=config.export_plot_folder,
+                    num_prefix=num_prefix,
                     lc_mode=lc_mode,
                     file_suffix=file_suffix,
                     partial_filename=partial_filename,
@@ -491,9 +640,19 @@ def process_all_formula_based(config: Config) -> None:
 
     logger.info("Processing %d file groups", total_files)
 
+    raw_entries = _collect_raw_entries_recursive(config.raw_data_folder)
+
     for idx, ((raw_filename, mode), group_df) in enumerate(grouped):
         raw_filename = str(raw_filename).strip()
-        raw_filename = sanitize_filename_component(raw_filename)
+        if not raw_filename:
+            logger.warning("Skipping empty RawFile at group %d", idx + 1)
+            continue
+
+        raw_filename = raw_filename.replace("\\", "/").strip()
+        raw_filename_path = Path(raw_filename)
+        if raw_filename_path.is_absolute() or any(part == ".." for part in raw_filename_path.parts):
+            logger.error("Invalid RawFile path (must be relative): %s", raw_filename)
+            continue
 
         # Validate mode
         try:
@@ -514,8 +673,11 @@ def process_all_formula_based(config: Config) -> None:
         if not raw_filename_lower.endswith(".raw"):
             raw_filename = raw_filename + ".raw"
 
-        # Build full path
-        full_file_path = os.path.join(str(config.raw_data_folder), raw_filename)
+        # Build full path (supports either relative paths, or fallback search
+        # within a nested raw folder structure).
+        full_path = Path(config.raw_data_folder) / raw_filename
+        full_file_path = str(full_path)
+        raw_file_id = _build_raw_file_id(full_path, config.raw_data_folder)
 
         # Parse formulas
         formulas_raw = group_df["Formula"].dropna().astype(str).tolist()
@@ -526,12 +688,33 @@ def process_all_formula_based(config: Config) -> None:
         logger.info("[%d/%d] File: %s", idx + 1, total_files, raw_filename)
 
         if not os.path.exists(full_file_path):
-            logger.error("File not found: %s", full_file_path)
-            continue
+            target_name = Path(raw_filename).name
+            candidates = [
+                p
+                for p in raw_entries
+                if p.name.lower() == target_name.lower()
+            ]
+            if len(candidates) == 1:
+                full_file_path = str(candidates[0])
+                raw_file_id = _build_raw_file_id(candidates[0], config.raw_data_folder)
+                logger.info("Resolved raw file under nested folders: %s", full_file_path)
+            elif not candidates:
+                logger.error("File not found: %s", full_file_path)
+                continue
+            else:
+                logger.error(
+                    "Multiple raw files match %s under %s; specify a relative path in the input Excel. Matches: %s",
+                    target_name,
+                    config.raw_data_folder,
+                    ", ".join(str(p) for p in candidates[:10]),
+                )
+                continue
 
         try:
             with RawFileReader(full_file_path) as reader:
-                file_results = process_raw_file(reader, formulas, mode, config)
+                file_results = process_raw_file(
+                    reader, formulas, mode, config, raw_file_id=raw_file_id
+                )
                 all_results.extend(file_results)
         except Exception as e:
             logger.error("Failed to process file %s: %s", raw_filename, e)
@@ -577,6 +760,12 @@ def process_all_direct_mz(config: Config) -> None:
     for lc_mode, meta_data in lc_mode_data.items():
         logger.info("Processing LC mode: %s (%d rows)", lc_mode, len(meta_data))
 
+        raw_search_root = _resolve_lc_mode_raw_folder(config.raw_data_folder, lc_mode)
+        raw_entries = _collect_raw_entries_recursive(raw_search_root)
+        logger.info(
+            "Indexed %d raw entries under: %s", len(raw_entries), raw_search_root
+        )
+
         grouped = meta_data.groupby(["File name", "Polarity"])
 
         for (partial_filename, polarity), group_df in grouped:
@@ -595,7 +784,9 @@ def process_all_direct_mz(config: Config) -> None:
                 continue
 
             matching_files = find_matching_raw_files(
-                partial_filename, config.raw_data_folder
+                partial_filename,
+                raw_search_root,
+                raw_entries=raw_entries,
             )
             if not matching_files:
                 logger.warning(
@@ -604,7 +795,16 @@ def process_all_direct_mz(config: Config) -> None:
                 continue
 
             for raw_file_path in matching_files:
+                run_label = _infer_run_label(raw_file_path, raw_search_root)
                 file_suffix = extract_file_suffix(raw_file_path, partial_filename)
+                if run_label:
+                    run_suffix = f"_{run_label}"
+                    if not file_suffix:
+                        file_suffix = run_suffix
+                    elif run_suffix.lower() not in file_suffix.lower():
+                        file_suffix = f"{file_suffix}{run_suffix}"
+
+                raw_file_id = _build_raw_file_id(raw_file_path, config.raw_data_folder)
 
                 logger.info(
                     "[%d/%d] File: %s | %s (matched: %s)",
@@ -612,7 +812,7 @@ def process_all_direct_mz(config: Config) -> None:
                     total_groups,
                     lc_mode,
                     partial_filename,
-                    raw_file_path.name,
+                    raw_file_id,
                 )
 
                 try:
@@ -625,6 +825,7 @@ def process_all_direct_mz(config: Config) -> None:
                             partial_filename=partial_filename,
                             file_suffix=file_suffix,
                             config=config,
+                            raw_file_id=raw_file_id,
                         )
                         all_results.extend(file_results)
                 except Exception as e:

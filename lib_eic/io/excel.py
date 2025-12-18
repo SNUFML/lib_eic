@@ -62,6 +62,7 @@ def read_input_excel_direct_mz(
     """Read input Excel file with direct m/z values.
 
     Expected columns (after stripping whitespace from headers):
+        - "num" (optional; used for plot filename ordering)
         - "File name"
         - "mixture"
         - "Compound name"
@@ -88,6 +89,12 @@ def read_input_excel_direct_mz(
     # Normalize column labels (common with Excel exports)
     df.columns = [str(c).strip() for c in df.columns]
 
+    # Normalize optional numbering column
+    for col in list(df.columns):
+        if str(col).strip().lower() == "num" and col != "num":
+            df = df.rename(columns={col: "num"})
+            break
+
     required = {"File name", "mixture", "Compound name", "Polarity", "m/z"}
     missing = required - set(df.columns)
     if missing:
@@ -101,7 +108,10 @@ def read_input_excel_direct_mz(
     df = df[df["m/z"].notna() & (df["m/z"] != 0)]
 
     # Keep only required columns in a stable order
-    df = df[["File name", "mixture", "Compound name", "Polarity", "m/z"]].copy()
+    ordered_cols = ["File name", "mixture", "Compound name", "Polarity", "m/z"]
+    if "num" in df.columns:
+        ordered_cols = ["num"] + ordered_cols
+    df = df[ordered_cols].copy()
 
     if lc_mode is not None:
         lc_mode_text = str(lc_mode).strip()

@@ -74,6 +74,7 @@ The tool automatically detects the ionization mode (Positive/Negative) and scans
 ### Quick Start
 
 1. Place your Thermo `.raw` files in `./raw` folder
+   - Nested layouts are supported, e.g. `./raw/{RP,HILIC}/{1st,2nd}/*.raw`
 2. Create an input Excel file (`file_list.xlsx`) with your compound list
 3. Run the tool:
 
@@ -95,12 +96,13 @@ The Excel file contains **separate sheets** for chromatography modes:
 
 The Excel file may contain merged cells in row 1; headers/data start from **row 2**.
 
-| File name              | mixture | Compound name | Polarity | m/z     |
-|:-----------------------|:--------|:--------------|:---------|:--------|
-| `Library_POS_Mix121`   | 121     | Spermine      | POS      | 203.223 |
-| `Library_POS_Mix121`   | 121     | Putrescine    | POS      | 89.107  |
-| `Library_NEG_Mix121`   | 121     | Glucose       | NEG      | 179.056 |
+| num | File name              | mixture | Compound name | Polarity | m/z     |
+|:----|:-----------------------|:--------|:--------------|:---------|:--------|
+| 1   | `Library_POS_Mix121`   | 121     | Spermine      | POS      | 203.223 |
+| 2   | `Library_POS_Mix121`   | 121     | Putrescine    | POS      | 89.107  |
+| 3   | `Library_NEG_Mix121`   | 121     | Glucose       | NEG      | 179.056 |
 
+* **num**: Optional ordering number (used to prefix plot filenames for easier sorting)
 * **File name**: Partial raw filename prefix used for matching (e.g., matches `File name.raw`, `File name_2nd.raw`, ...)
 * **mixture**: Mixture identifier (used in plot filenames)
 * **Compound name**: Display name for plots and Excel output
@@ -108,7 +110,11 @@ The Excel file may contain merged cells in row 1; headers/data start from **row 
 * **m/z**: Direct target m/z value
 
 EIC plots are saved under:
-`EIC_Plots_Export/{LC mode}/{Polarity}/{File name}/{Compound name}_{Polarity}_{mixture}{suffix}.png`
+`EIC_Plots_Export/{LC mode}/{Polarity}/{File name}/[{num}_]{Compound name}_{Polarity}_{mixture}{suffix}.png`
+
+Notes:
+- For direct m/z input (separate `RP`/`HILIC` sheets), if `--raw-folder` contains an `{LC mode}` subfolder, the tool searches that first.
+- If raw files are further split by run folders (e.g. `1st/`, `2nd/`), the run label is carried into the output (and plot filenames) to avoid overwrites.
 
 #### B) Formula-based format (legacy)
 
