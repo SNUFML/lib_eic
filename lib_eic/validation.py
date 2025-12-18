@@ -78,6 +78,7 @@ def validate_formula(formula_str: str) -> str:
     # Try to parse with molmass to validate
     try:
         from molmass import Formula
+
         f = Formula(formula_normalized)
         # Access mass property to trigger actual validation
         _ = f.isotope.mass
@@ -105,6 +106,7 @@ def validate_formulas(formulas: List[str]) -> List[str]:
         List of valid, normalized formulas.
     """
     import logging
+
     logger = logging.getLogger(__name__)
 
     valid_formulas = []

@@ -117,8 +117,8 @@ class TestCalculateTargetMz:
 
     def test_invalid_mass_returns_none(self):
         adduct_info = {"multiplier": 1, "delta": MASS_H, "net_charge": 1}
-        assert calculate_target_mz_from_mass(float('nan'), adduct_info) is None
-        assert calculate_target_mz_from_mass(float('inf'), adduct_info) is None
+        assert calculate_target_mz_from_mass(float("nan"), adduct_info) is None
+        assert calculate_target_mz_from_mass(float("inf"), adduct_info) is None
 
     def test_calculate_target_mz_from_formula(self):
         """Test calculate_target_mz convenience function."""

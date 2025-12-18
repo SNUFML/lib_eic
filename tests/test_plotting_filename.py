@@ -32,4 +32,3 @@ def test_build_direct_mz_plot_filename_ignores_nan_num_prefix() -> None:
     )
 
     assert name == "Spermine_POS_121.png"
-

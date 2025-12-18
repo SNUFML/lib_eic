@@ -54,7 +54,9 @@ def test_build_raw_file_id_uses_relative_posix_path(tmp_path: Path) -> None:
     assert _build_raw_file_id(raw_path, raw_root) == "HILIC/1st/sample.raw"
 
 
-def test_find_matching_raw_files_avoids_numeric_prefix_overmatch(tmp_path: Path) -> None:
+def test_find_matching_raw_files_avoids_numeric_prefix_overmatch(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "HILIC"
     root.mkdir()
 
@@ -71,4 +73,3 @@ def test_find_matching_raw_files_avoids_numeric_prefix_overmatch(tmp_path: Path)
     )
 
     assert matches == [f1, f2]
-

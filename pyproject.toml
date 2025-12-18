@@ -4,9 +4,10 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "lib_eic"
-version = "0.2.0"
+version = "0.1.0"
 authors = [
   { name = "Jihyun Chun", email = "jihyun5311@snu.ac.kr" },
+  { name = "Daehwan Kim", email = "kdh5358@snu.ac.kr"    },
 ]
 description = "Automated Targeted Feature Extraction & Adduct Verification Tool for LC-MS Data."
 readme = "README.md"

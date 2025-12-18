@@ -174,7 +174,9 @@ class RawFileReader:
         settings.filter = "ms"
         settings.mass_ranges = [Range.create(float(target_mz), float(target_mz))]
 
-        chrom_data = self._raw_access.get_chromatogram_data([settings], -1, -1, mass_opts)
+        chrom_data = self._raw_access.get_chromatogram_data(
+            [settings], -1, -1, mass_opts
+        )
         rt_arr = chrom_data.positions_array[0]
         int_arr = chrom_data.intensities_array[0]
 
@@ -241,7 +243,7 @@ class RawFileReader:
 
         # Process in batches
         for i in range(0, len(target_mzs), batch_size):
-            batch_mzs = target_mzs[i:i + batch_size]
+            batch_mzs = target_mzs[i : i + batch_size]
 
             # Create settings for each m/z
             settings_list = []
@@ -368,14 +370,19 @@ class RawFileReader:
         scan_no = int(scan_no)
         scan_event = self._raw_access.get_scan_event_for_scan_number(scan_no)
 
-        if getattr(scan_event, "mass_analyzer", None) == MassAnalyzerType.MassAnalyzerFTMS:
+        if (
+            getattr(scan_event, "mass_analyzer", None)
+            == MassAnalyzerType.MassAnalyzerFTMS
+        ):
             spectrum = self._raw_access.get_centroid_stream(scan_no, False)
             mz_array = np.array(spectrum.masses)
             intensity_array = np.array(spectrum.intensities)
             charges = np.array(spectrum.charges)
         else:
             stats = self._raw_access.get_scan_stats_for_scan_number(scan_no)
-            spectrum = self._raw_access.get_segmented_scan_from_scan_number(scan_no, stats)
+            spectrum = self._raw_access.get_segmented_scan_from_scan_number(
+                scan_no, stats
+            )
             mz_array = np.array(spectrum.positions)
             intensity_array = np.array(spectrum.intensities)
             charges = np.zeros(mz_array.shape)

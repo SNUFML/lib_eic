@@ -14,7 +14,9 @@ def test_read_input_excel_direct_mz_keeps_optional_num_column(tmp_path: Path) ->
 
     # The reader uses skiprows=1 because some templates have merged cells in row 1.
     ws.append(["merged header row"])
-    ws.append(["Num", "File name", "mixture", "Compound name", "Polarity", "m/z", "extra"])
+    ws.append(
+        ["Num", "File name", "mixture", "Compound name", "Polarity", "m/z", "extra"]
+    )
     ws.append([1, "Library_POS_Mix121", 121, "Spermine", "POS", 203.223, "x"])
     ws.append([2, "Library_POS_Mix121", 121, "Putrescine", "POS", 89.107, "y"])
 
@@ -31,4 +33,3 @@ def test_read_input_excel_direct_mz_keeps_optional_num_column(tmp_path: Path) ->
         "m/z",
     ]
     assert df["num"].tolist() == [1, 2]
-

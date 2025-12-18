@@ -212,7 +212,7 @@ def find_matching_raw_files(
         if stem_lower.startswith(partial_lower):
             # Only treat as a "repeat" match if the suffix is underscore-delimited
             # (e.g., prevents "Mixture_1" matching "Mixture_10").
-            next_ch = stem_lower[len(partial_lower):len(partial_lower) + 1]
+            next_ch = stem_lower[len(partial_lower) : len(partial_lower) + 1]
             if next_ch == "_":
                 matches.append(entry)
 
@@ -239,11 +239,11 @@ def extract_file_suffix(raw_file_path: Path, partial_filename: str) -> str:
         return ""
 
     if stem.startswith(partial):
-        return stem[len(partial):]
+        return stem[len(partial) :]
 
     # Case-insensitive fallback
     if stem.lower().startswith(partial.lower()):
-        return stem[len(partial):]
+        return stem[len(partial) :]
 
     return ""
 
@@ -280,7 +280,9 @@ def process_raw_file(
         try:
             ms2_index = build_ms2_index(reader)
             ms2_enabled = True
-            logger.debug("Built MS2 index with %d entries", len(ms2_index.get("entries", [])))
+            logger.debug(
+                "Built MS2 index with %d entries", len(ms2_index.get("entries", []))
+            )
         except Exception as e:
             logger.warning("MS2 index build failed: %s", e)
             ms2_index = None
@@ -418,7 +420,9 @@ def process_raw_file(
         if not filtered_out and ms2_enabled and config.store_ms2_match_details:
             row_out["MS2ScanNo"] = ms2_match.get("scan_no") if ms2_match else None
             row_out["MS2RT_min"] = ms2_match.get("rt_min") if ms2_match else None
-            row_out["MS2Precursor_mz"] = ms2_match.get("precursor_mz") if ms2_match else None
+            row_out["MS2Precursor_mz"] = (
+                ms2_match.get("precursor_mz") if ms2_match else None
+            )
 
         if status_rows is not None:
             status_rows.append(row_out)
@@ -659,9 +663,7 @@ def process_all_formula_based(config: Config) -> None:
     """
     # Read input Excel file
     if not os.path.exists(config.input_excel):
-        raise FileNotFoundError(
-            f"Input Excel file not found: {config.input_excel}"
-        )
+        raise FileNotFoundError(f"Input Excel file not found: {config.input_excel}")
 
     logger.info("Reading input file: %s", config.input_excel)
     meta_data = read_input_excel(
@@ -689,7 +691,9 @@ def process_all_formula_based(config: Config) -> None:
 
         raw_filename = raw_filename.replace("\\", "/").strip()
         raw_filename_path = Path(raw_filename)
-        if raw_filename_path.is_absolute() or any(part == ".." for part in raw_filename_path.parts):
+        if raw_filename_path.is_absolute() or any(
+            part == ".." for part in raw_filename_path.parts
+        ):
             logger.error("Invalid RawFile path (must be relative): %s", raw_filename)
             continue
 
@@ -705,7 +709,9 @@ def process_all_formula_based(config: Config) -> None:
         if raw_filename_lower.endswith(".mzml"):
             logger.error(
                 "[%d/%d] File: %s - mzML files are not supported. Use Thermo .raw files.",
-                idx + 1, total_files, raw_filename
+                idx + 1,
+                total_files,
+                raw_filename,
             )
             continue
 
@@ -729,14 +735,14 @@ def process_all_formula_based(config: Config) -> None:
         if not os.path.exists(full_file_path):
             target_name = Path(raw_filename).name
             candidates = [
-                p
-                for p in raw_entries
-                if p.name.lower() == target_name.lower()
+                p for p in raw_entries if p.name.lower() == target_name.lower()
             ]
             if len(candidates) == 1:
                 full_file_path = str(candidates[0])
                 raw_file_id = _build_raw_file_id(candidates[0], config.raw_data_folder)
-                logger.info("Resolved raw file under nested folders: %s", full_file_path)
+                logger.info(
+                    "Resolved raw file under nested folders: %s", full_file_path
+                )
             elif not candidates:
                 logger.error("File not found: %s", full_file_path)
                 for formula in formulas:
@@ -860,7 +866,9 @@ def process_all_direct_mz(config: Config) -> None:
     all_results: List[Dict[str, Any]] = []
     all_status_rows: List[Dict[str, Any]] = []
 
-    total_groups = sum(len(df.groupby(["File name", "Polarity"])) for df in lc_mode_data.values())
+    total_groups = sum(
+        len(df.groupby(["File name", "Polarity"])) for df in lc_mode_data.values()
+    )
 
     logger.info("Processing %d file groups (direct m/z)", total_groups)
 
@@ -888,7 +896,10 @@ def process_all_direct_mz(config: Config) -> None:
                 polarity_norm = validate_mode(polarity)
             except ValueError as e:
                 logger.error(
-                    "Invalid polarity for file %s (%s): %s", partial_filename, lc_mode, e
+                    "Invalid polarity for file %s (%s): %s",
+                    partial_filename,
+                    lc_mode,
+                    e,
                 )
                 continue
 

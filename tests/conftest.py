@@ -12,7 +12,7 @@ def sample_eic_data():
     rt = np.linspace(0, 10, 100)
     center = 5.0
     sigma = 0.5
-    intensity = 1e6 * np.exp(-((rt - center) ** 2) / (2 * sigma ** 2))
+    intensity = 1e6 * np.exp(-((rt - center) ** 2) / (2 * sigma**2))
     # Add some noise
     intensity += rng.normal(0, 1000, intensity.shape)
     intensity = np.maximum(intensity, 0)  # No negative intensities
@@ -33,6 +33,7 @@ def noisy_eic_data():
 def sample_config():
     """Create a sample Config instance for testing."""
     from lib_eic.config import Config
+
     return Config(
         ppm_tolerance=10.0,
         min_peak_intensity=1000,

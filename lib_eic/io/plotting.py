@@ -181,9 +181,7 @@ def save_eic_plot(
         apex_rt = rt_arr[apex_idx] if rt_arr.size > 0 else 0.0
         peak_height = max_int
 
-        title_text = (
-            f"{formula} {adduct}  |  m/z = {mz_val:.4f}\nFile: {raw_filename}"
-        )
+        title_text = f"{formula} {adduct}  |  m/z = {mz_val:.4f}\nFile: {raw_filename}"
         annotation_text = (
             f"Apex RT: {apex_rt:.3f} min    |    Peak Height: {peak_height:.2e}"
         )
@@ -198,10 +196,7 @@ def save_eic_plot(
         # Generate safe filename
         safe_form = "".join(c for c in formula if c.isalnum())
         safe_add = (
-            adduct.replace("[", "")
-            .replace("]", "")
-            .replace("+", "p")
-            .replace("-", "m")
+            adduct.replace("[", "").replace("]", "").replace("+", "p").replace("-", "m")
         )
         safe_raw = _sanitize_component(raw_filename)
         save_name = f"{safe_form}_{safe_add}_{safe_raw}.png"
@@ -220,6 +215,7 @@ def save_eic_plot(
 def _sanitize_component(value: str) -> str:
     """Sanitize a string for use in filenames."""
     import re
+
     value = os.path.basename(str(value))
     value = value.replace("/", "_").replace("\\", "_")
     value = re.sub(r"[^A-Za-z0-9._-]+", "_", value)
@@ -326,9 +322,7 @@ def save_eic_plot_direct_mz(
             f"{compound_name_disp} | {lc_mode_disp} | {polarity_disp} | m/z = {mz_val:.4f}\n"
             f"File: {raw_filename}"
         )
-        annotation_text = (
-            f"Apex RT: {float(apex_rt):.3f} min    |    Peak Height: {float(peak_height):.2e}"
-        )
+        annotation_text = f"Apex RT: {float(apex_rt):.3f} min    |    Peak Height: {float(peak_height):.2e}"
         plotter.update(
             rt_arr=rt_arr,
             rel_abundance=rel_abundance,

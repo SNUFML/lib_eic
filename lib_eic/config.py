@@ -68,7 +68,9 @@ class Config:
                 s.strip() for s in str(self.input_sheets).split(",") if s.strip()
             ]
         else:
-            self.input_sheets = [str(s).strip() for s in self.input_sheets if str(s).strip()]
+            self.input_sheets = [
+                str(s).strip() for s in self.input_sheets if str(s).strip()
+            ]
 
         # Validate ms2_match_mode
         if self.ms2_match_mode not in ("rt_linked", "global"):
@@ -154,7 +156,9 @@ def load_config(config_path: Optional[str] = None) -> Config:
         return Config()
 
     if not isinstance(data, dict):
-        raise ValueError(f"Config file must contain a YAML dictionary, got: {type(data)}")
+        raise ValueError(
+            f"Config file must contain a YAML dictionary, got: {type(data)}"
+        )
 
     return Config.from_dict(data)
 

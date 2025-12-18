@@ -52,25 +52,29 @@ Examples:
     # Input/output options
     io_group = parser.add_argument_group("Input/Output")
     io_group.add_argument(
-        "-i", "--input",
+        "-i",
+        "--input",
         dest="input_excel",
         metavar="FILE",
         help="Input Excel file with compound list (default: file_list.xlsx)",
     )
     io_group.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         dest="output_excel",
         metavar="FILE",
         help="Output Excel file for results (default: Final_Result_With_Plots.xlsx)",
     )
     io_group.add_argument(
-        "-r", "--raw-folder",
+        "-r",
+        "--raw-folder",
         dest="raw_data_folder",
         metavar="DIR",
         help="Folder containing .raw files (default: ./raw)",
     )
     io_group.add_argument(
-        "-s", "--sheet",
+        "-s",
+        "--sheet",
         dest="input_sheet",
         metavar="NAME",
         help=(
@@ -89,7 +93,8 @@ Examples:
     # Config options
     config_group = parser.add_argument_group("Configuration")
     config_group.add_argument(
-        "-c", "--config",
+        "-c",
+        "--config",
         dest="config_file",
         metavar="FILE",
         help="YAML configuration file",
@@ -145,12 +150,14 @@ Examples:
     # Logging options
     log_group = parser.add_argument_group("Logging")
     log_group.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Enable verbose (DEBUG) logging",
     )
     log_group.add_argument(
-        "-q", "--quiet",
+        "-q",
+        "--quiet",
         action="store_true",
         help="Suppress non-error output",
     )
@@ -272,10 +279,12 @@ def main(args: Optional[List[str]] = None) -> int:
 
     # Setup logging
     from .logging_setup import setup_logging
+
     setup_logging(level=config.log_level, log_file=config.log_file)
 
     # Run processing
     from .processor import process_all
+
     try:
         process_all(config)
         return 0
@@ -284,6 +293,7 @@ def main(args: Optional[List[str]] = None) -> int:
         return 130
     except Exception as e:
         import logging
+
         logger = logging.getLogger(__name__)
         logger.exception("Processing failed: %s", e)
         return 1

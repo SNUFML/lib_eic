@@ -44,9 +44,27 @@ def test_process_raw_file_direct_mz_collects_status_rows() -> None:
 
     targets_df = pd.DataFrame(
         [
-            {"File name": "Library_POS_Mix121", "mixture": 121, "Compound name": "A", "Polarity": "POS", "m/z": 100.0},
-            {"File name": "Library_POS_Mix121", "mixture": 121, "Compound name": "B", "Polarity": "POS", "m/z": 200.0},
-            {"File name": "Library_POS_Mix121", "mixture": 121, "Compound name": "C", "Polarity": "POS", "m/z": None},
+            {
+                "File name": "Library_POS_Mix121",
+                "mixture": 121,
+                "Compound name": "A",
+                "Polarity": "POS",
+                "m/z": 100.0,
+            },
+            {
+                "File name": "Library_POS_Mix121",
+                "mixture": 121,
+                "Compound name": "B",
+                "Polarity": "POS",
+                "m/z": 200.0,
+            },
+            {
+                "File name": "Library_POS_Mix121",
+                "mixture": 121,
+                "Compound name": "C",
+                "Polarity": "POS",
+                "m/z": None,
+            },
         ]
     )
 
@@ -122,4 +140,3 @@ def test_write_results_excel_writes_target_status_sheet(tmp_path: Path) -> None:
     df_status = pd.read_excel(out_path, sheet_name="Target_Status")
     assert {"EICGenerated", "FilteredOut"}.issubset(set(df_status.columns))
     assert len(df_status) == 2
-

@@ -45,6 +45,7 @@ def get_exact_mass(formula_str: str) -> Optional[float]:
 
     try:
         from molmass import Formula
+
         mass = float(Formula(formula_norm).isotope.mass)
         return mass
     except Exception:

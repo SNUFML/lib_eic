@@ -66,11 +66,13 @@ def build_ms2_index(reader: RawFileReader) -> MS2Index:
             except Exception:
                 continue
 
-            entries.append({
-                "scan_no": int(scan_no),
-                "rt_min": float(rt_min) if rt_min is not None else None,
-                "precursor_mz": float(pmz),
-            })
+            entries.append(
+                {
+                    "scan_no": int(scan_no),
+                    "rt_min": float(rt_min) if rt_min is not None else None,
+                    "precursor_mz": float(pmz),
+                }
+            )
 
     # Sort by m/z for binary search
     entries.sort(key=lambda e: e["precursor_mz"])

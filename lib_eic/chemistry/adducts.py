@@ -3,13 +3,13 @@
 from typing import Dict, Any
 
 # Atomic/molecular mass constants (isotopic masses)
-MASS_H = 1.0073      # Hydrogen
-MASS_Na = 22.9892    # Sodium
-MASS_ACN = 41.0265   # Acetonitrile
-MASS_FA = 46.0055    # Formic acid
+MASS_H = 1.0073  # Hydrogen
+MASS_Na = 22.9892  # Sodium
+MASS_ACN = 41.0265  # Acetonitrile
+MASS_FA = 46.0055  # Formic acid
 MASS_HCOO = 44.9983  # Formate
-MASS_NH4 = 18.0338   # Ammonium
-MASS_H2O = 18.0106   # Water
+MASS_NH4 = 18.0338  # Ammonium
+MASS_H2O = 18.0106  # Water
 MASS_E = 0.00054858  # Electron mass
 
 
@@ -37,7 +37,6 @@ ADDUCT_DEFINITIONS: Dict[str, Dict[str, Any]] = {
         "net_charge": +1,
         "enabled": False,
     },
-
     # ===== Monomer Adducts (n=1) =====
     "[M-2H2O+H]+": {
         "multiplier": 1,
