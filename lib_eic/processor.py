@@ -255,6 +255,7 @@ def process_raw_file(
     config: Config,
     *,
     raw_file_id: Optional[str] = None,
+    status_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Process a single raw file and extract features.
 
@@ -318,6 +319,24 @@ def process_raw_file(
         eic_data = eic_dict.get(target.key)
         if eic_data is None:
             logger.warning("Missing EIC for target: %s %s", formula, adduct_name)
+            if status_rows is not None:
+                status_rows.append(
+                    {
+                        "RawFile": filename,
+                        "Mode": mode,
+                        "Formula": formula,
+                        "Adduct": adduct_name,
+                        "mz_theoretical": target_mz,
+                        "RT_min": None,
+                        "Intensity": None,
+                        "Area": None,
+                        "GaussianScore": None,
+                        "PeakQuality": None,
+                        "HasMS2": None,
+                        "EICGenerated": False,
+                        "FilteredOut": False,
+                    }
+                )
             continue
 
         eic_rt, eic_int = eic_data
@@ -325,7 +344,8 @@ def process_raw_file(
         max_intensity = float(np.max(eic_int)) if eic_int.size else 0.0
 
         # Skip peaks below threshold
-        if max_intensity < config.min_peak_intensity:
+        filtered_out = max_intensity < config.min_peak_intensity
+        if filtered_out and status_rows is None:
             continue
 
         total_area = calculate_area(eic_rt, eic_int, method=config.area_method)
@@ -336,7 +356,7 @@ def process_raw_file(
         rt_apex_for_ms2 = None
         fit_params = None
 
-        if max_intensity > 1000:
+        if not filtered_out and max_intensity > 1000:
             apex_idx = np.argmax(eic_int)
             best_rt_min = float(eic_rt[apex_idx])
             rt_apex_for_ms2 = best_rt_min
@@ -368,7 +388,7 @@ def process_raw_file(
         # MS2 matching
         has_ms2 = None
         ms2_match = None
-        if ms2_enabled:
+        if not filtered_out and ms2_enabled:
             has_ms2, ms2_match = match_ms2(
                 ms2_index,
                 target_mz,
@@ -391,14 +411,19 @@ def process_raw_file(
             "GaussianScore": round(gauss_score, 3),
             "PeakQuality": quality_label,
             "HasMS2": bool(has_ms2) if ms2_enabled else None,
+            "EICGenerated": True,
+            "FilteredOut": filtered_out,
         }
 
-        if ms2_enabled and config.store_ms2_match_details:
+        if not filtered_out and ms2_enabled and config.store_ms2_match_details:
             row_out["MS2ScanNo"] = ms2_match.get("scan_no") if ms2_match else None
             row_out["MS2RT_min"] = ms2_match.get("rt_min") if ms2_match else None
             row_out["MS2Precursor_mz"] = ms2_match.get("precursor_mz") if ms2_match else None
 
-        results.append(row_out)
+        if status_rows is not None:
+            status_rows.append(row_out)
+        if not filtered_out:
+            results.append(row_out)
 
     logger.info("Found %d features in %s", len(results), filename)
     return results
@@ -414,6 +439,7 @@ def process_raw_file_direct_mz(
     config: Config,
     *,
     raw_file_id: Optional[str] = None,
+    status_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> List[Dict[str, Any]]:
     """Process a single raw file using direct m/z targets from input Excel."""
     filename = str(raw_file_id).strip() if raw_file_id else reader.filename
@@ -438,7 +464,6 @@ def process_raw_file_direct_mz(
     # Ensure m/z is numeric and filtered
     targets_df = targets_df.copy()
     targets_df["m/z"] = pd.to_numeric(targets_df["m/z"], errors="coerce")
-    targets_df = targets_df[targets_df["m/z"].notna() & (targets_df["m/z"] != 0)]
     targets_df = targets_df.reset_index(drop=True)
 
     if targets_df.empty:
@@ -454,22 +479,30 @@ def process_raw_file_direct_mz(
         if num_candidates:
             num_width = max(len(t) for t in num_candidates)
 
-    mz_list = targets_df["m/z"].astype(float).tolist()
+    valid_mz_mask = targets_df["m/z"].notna() & (targets_df["m/z"] != 0)
+    valid_mz_indices = targets_df.index[valid_mz_mask].tolist()
+    valid_index_to_pos = {idx: pos for pos, idx in enumerate(valid_mz_indices)}
+    mz_list = targets_df.loc[valid_mz_mask, "m/z"].astype(float).tolist()
 
-    if not reader.has_multi_chromatogram_api():
-        raise RuntimeError(
-            "Batch chromatogram extraction is required (multi-chromatogram API unavailable)."
-        )
+    eic_results_valid: List[Any] = []
+    if mz_list:
+        if not reader.has_multi_chromatogram_api():
+            raise RuntimeError(
+                "Batch chromatogram extraction is required (multi-chromatogram API unavailable)."
+            )
 
-    try:
-        eic_results = reader.get_chromatograms_batch(mz_list, config.ppm_tolerance)
-    except Exception as e:
-        raise RuntimeError(f"Batch chromatogram extraction failed: {e}") from e
+        try:
+            eic_results_valid = reader.get_chromatograms_batch(
+                mz_list, config.ppm_tolerance
+            )
+        except Exception as e:
+            raise RuntimeError(f"Batch chromatogram extraction failed: {e}") from e
 
-    logger.debug("Using batch chromatogram extraction")
+        logger.debug("Using batch chromatogram extraction")
 
     for i, row in targets_df.iterrows():
-        mz_val = float(row["m/z"])
+        mz_raw = row.get("m/z")
+        mz_val = float(mz_raw) if pd.notna(mz_raw) else None
 
         num_prefix = ""
         if num_width and "num" in targets_df.columns:
@@ -486,20 +519,47 @@ def process_raw_file_direct_mz(
 
         mixture = _normalize_mixture_value(row.get("mixture"))
 
+        row_out: Dict[str, Any] = {
+            "RawFile": filename,
+            "File name": str(partial_filename),
+            "lc_mode": str(lc_mode),
+            "mixture": mixture,
+            "Compound name": compound_name,
+            "Polarity": polarity,
+            "mz_target": mz_val,
+            "RT_min": None,
+            "Intensity": None,
+            "Area": None,
+            "GaussianScore": None,
+            "PeakQuality": None,
+            "HasMS2": None,
+            "EICGenerated": False,
+            "FilteredOut": False,
+        }
+
+        valid_pos = valid_index_to_pos.get(i)
+        if mz_val is None or valid_pos is None:
+            if status_rows is not None:
+                status_rows.append(row_out)
+            continue
+
         try:
-            eic_rt, eic_int = eic_results[i]
+            eic_rt, eic_int = eic_results_valid[valid_pos]
         except Exception as e:
             logger.warning(
                 "EIC extraction error (%s, %s, %.4f): %s",
                 filename,
                 compound_name,
-                mz_val,
+                float(mz_val) if mz_val is not None else float("nan"),
                 e,
             )
+            if status_rows is not None:
+                status_rows.append(row_out)
             continue
 
         max_intensity = float(np.max(eic_int)) if eic_int.size else 0.0
-        if max_intensity < config.min_peak_intensity:
+        filtered_out = max_intensity < config.min_peak_intensity
+        if filtered_out and status_rows is None:
             continue
 
         total_area = calculate_area(eic_rt, eic_int, method=config.area_method)
@@ -510,7 +570,7 @@ def process_raw_file_direct_mz(
         rt_apex_for_ms2 = None
         fit_params = None
 
-        if max_intensity > 1000:
+        if not filtered_out and max_intensity > 1000:
             apex_idx = int(np.argmax(eic_int))
             best_rt_min = float(eic_rt[apex_idx]) if eic_rt.size else 0.0
             rt_apex_for_ms2 = best_rt_min
@@ -548,40 +608,40 @@ def process_raw_file_direct_mz(
         # MS2 matching
         has_ms2 = None
         ms2_match = None
-        if ms2_enabled:
+        if not filtered_out and ms2_enabled:
             has_ms2, ms2_match = match_ms2(
                 ms2_index,
-                mz_val,
+                float(mz_val) if mz_val is not None else float("nan"),
                 config.ppm_tolerance,
                 rt_apex_min=rt_apex_for_ms2,
                 rt_window_min=config.ms2_rt_window_min,
                 mode=config.ms2_match_mode,
             )
 
-        row_out: Dict[str, Any] = {
-            "RawFile": filename,
-            "File name": str(partial_filename),
-            "lc_mode": str(lc_mode),
-            "mixture": mixture,
-            "Compound name": compound_name,
-            "Polarity": polarity,
-            "mz_target": mz_val,
-            "RT_min": round(best_rt_min, 3),
-            "Intensity": max_intensity,
-            "Area": total_area,
-            "GaussianScore": round(gauss_score, 3),
-            "PeakQuality": quality_label,
-            "HasMS2": bool(has_ms2) if ms2_enabled else None,
-        }
+        row_out.update(
+            {
+                "RT_min": round(best_rt_min, 3),
+                "Intensity": max_intensity,
+                "Area": total_area,
+                "GaussianScore": round(gauss_score, 3),
+                "PeakQuality": quality_label,
+                "HasMS2": bool(has_ms2) if ms2_enabled else None,
+                "EICGenerated": True,
+                "FilteredOut": filtered_out,
+            }
+        )
 
-        if ms2_enabled and config.store_ms2_match_details:
+        if not filtered_out and ms2_enabled and config.store_ms2_match_details:
             row_out["MS2ScanNo"] = ms2_match.get("scan_no") if ms2_match else None
             row_out["MS2RT_min"] = ms2_match.get("rt_min") if ms2_match else None
             row_out["MS2Precursor_mz"] = (
                 ms2_match.get("precursor_mz") if ms2_match else None
             )
 
-        results.append(row_out)
+        if status_rows is not None:
+            status_rows.append(row_out)
+        if not filtered_out:
+            results.append(row_out)
 
     logger.info("Found %d features in %s", len(results), filename)
     return results
@@ -611,6 +671,7 @@ def process_all_formula_based(config: Config) -> None:
     )
 
     all_results: List[Dict[str, Any]] = []
+    all_status_rows: List[Dict[str, Any]] = []
 
     # Group by RawFile and Mode
     grouped = meta_data.groupby(["RawFile", "Mode"])
@@ -678,6 +739,24 @@ def process_all_formula_based(config: Config) -> None:
                 logger.info("Resolved raw file under nested folders: %s", full_file_path)
             elif not candidates:
                 logger.error("File not found: %s", full_file_path)
+                for formula in formulas:
+                    all_status_rows.append(
+                        {
+                            "RawFile": raw_file_id,
+                            "Mode": mode,
+                            "Formula": formula,
+                            "Adduct": None,
+                            "mz_theoretical": None,
+                            "RT_min": None,
+                            "Intensity": None,
+                            "Area": None,
+                            "GaussianScore": None,
+                            "PeakQuality": None,
+                            "HasMS2": None,
+                            "EICGenerated": False,
+                            "FilteredOut": False,
+                        }
+                    )
                 continue
             else:
                 logger.error(
@@ -686,22 +765,73 @@ def process_all_formula_based(config: Config) -> None:
                     config.raw_data_folder,
                     ", ".join(str(p) for p in candidates[:10]),
                 )
+                for formula in formulas:
+                    all_status_rows.append(
+                        {
+                            "RawFile": raw_file_id,
+                            "Mode": mode,
+                            "Formula": formula,
+                            "Adduct": None,
+                            "mz_theoretical": None,
+                            "RT_min": None,
+                            "Intensity": None,
+                            "Area": None,
+                            "GaussianScore": None,
+                            "PeakQuality": None,
+                            "HasMS2": None,
+                            "EICGenerated": False,
+                            "FilteredOut": False,
+                        }
+                    )
                 continue
 
         try:
             with RawFileReader(full_file_path) as reader:
                 file_results = process_raw_file(
-                    reader, formulas, mode, config, raw_file_id=raw_file_id
+                    reader,
+                    formulas,
+                    mode,
+                    config,
+                    raw_file_id=raw_file_id,
+                    status_rows=all_status_rows,
                 )
                 all_results.extend(file_results)
         except Exception as e:
             logger.error("Failed to process file %s: %s", raw_filename, e)
+            for formula in formulas:
+                all_status_rows.append(
+                    {
+                        "RawFile": raw_file_id,
+                        "Mode": mode,
+                        "Formula": formula,
+                        "Adduct": None,
+                        "mz_theoretical": None,
+                        "RT_min": None,
+                        "Intensity": None,
+                        "Area": None,
+                        "GaussianScore": None,
+                        "PeakQuality": None,
+                        "HasMS2": None,
+                        "EICGenerated": False,
+                        "FilteredOut": False,
+                    }
+                )
             continue
 
     # Save results
-    if all_results:
-        logger.info("Saving %d results to: %s", len(all_results), config.output_excel)
-        write_results_excel(all_results, config.output_excel, include_pivot_tables=True)
+    if all_results or all_status_rows:
+        logger.info(
+            "Saving %d results (%d targets) to: %s",
+            len(all_results),
+            len(all_status_rows),
+            config.output_excel,
+        )
+        write_results_excel(
+            all_results,
+            config.output_excel,
+            include_pivot_tables=True,
+            status_rows=all_status_rows,
+        )
         logger.info("Processing complete: %s", config.output_excel)
     else:
         logger.warning("No results to save")
@@ -728,6 +858,7 @@ def process_all_direct_mz(config: Config) -> None:
         lc_mode_data = {str(config.input_sheet): meta_data}
 
     all_results: List[Dict[str, Any]] = []
+    all_status_rows: List[Dict[str, Any]] = []
 
     total_groups = sum(len(df.groupby(["File name", "Polarity"])) for df in lc_mode_data.values())
 
@@ -770,6 +901,37 @@ def process_all_direct_mz(config: Config) -> None:
                 logger.warning(
                     "No matching raw files for: %s (%s)", partial_filename, lc_mode
                 )
+                for _, row in group_df.iterrows():
+                    mz_raw = row.get("m/z")
+                    mz_val = pd.to_numeric(mz_raw, errors="coerce")
+                    mz_target = float(mz_val) if pd.notna(mz_val) else None
+
+                    compound_raw = row.get("Compound name")
+                    compound_name = (
+                        "" if pd.isna(compound_raw) else str(compound_raw).strip()
+                    )
+                    if not compound_name:
+                        compound_name = "Unknown"
+
+                    all_status_rows.append(
+                        {
+                            "RawFile": None,
+                            "File name": str(partial_filename),
+                            "lc_mode": str(lc_mode),
+                            "mixture": _normalize_mixture_value(row.get("mixture")),
+                            "Compound name": compound_name,
+                            "Polarity": polarity_norm,
+                            "mz_target": mz_target,
+                            "RT_min": None,
+                            "Intensity": None,
+                            "Area": None,
+                            "GaussianScore": None,
+                            "PeakQuality": None,
+                            "HasMS2": None,
+                            "EICGenerated": False,
+                            "FilteredOut": False,
+                        }
+                    )
                 continue
 
             for raw_file_path in matching_files:
@@ -804,15 +966,57 @@ def process_all_direct_mz(config: Config) -> None:
                             file_suffix=file_suffix,
                             config=config,
                             raw_file_id=raw_file_id,
+                            status_rows=all_status_rows,
                         )
                         all_results.extend(file_results)
                 except Exception as e:
                     logger.error("Failed to process file %s: %s", raw_file_path, e)
+                    for _, row in group_df.iterrows():
+                        mz_raw = row.get("m/z")
+                        mz_val = pd.to_numeric(mz_raw, errors="coerce")
+                        mz_target = float(mz_val) if pd.notna(mz_val) else None
+
+                        compound_raw = row.get("Compound name")
+                        compound_name = (
+                            "" if pd.isna(compound_raw) else str(compound_raw).strip()
+                        )
+                        if not compound_name:
+                            compound_name = "Unknown"
+
+                        all_status_rows.append(
+                            {
+                                "RawFile": raw_file_id,
+                                "File name": str(partial_filename),
+                                "lc_mode": str(lc_mode),
+                                "mixture": _normalize_mixture_value(row.get("mixture")),
+                                "Compound name": compound_name,
+                                "Polarity": polarity_norm,
+                                "mz_target": mz_target,
+                                "RT_min": None,
+                                "Intensity": None,
+                                "Area": None,
+                                "GaussianScore": None,
+                                "PeakQuality": None,
+                                "HasMS2": None,
+                                "EICGenerated": False,
+                                "FilteredOut": False,
+                            }
+                        )
                     continue
 
-    if all_results:
-        logger.info("Saving %d results to: %s", len(all_results), config.output_excel)
-        write_results_excel(all_results, config.output_excel, include_pivot_tables=True)
+    if all_results or all_status_rows:
+        logger.info(
+            "Saving %d results (%d targets) to: %s",
+            len(all_results),
+            len(all_status_rows),
+            config.output_excel,
+        )
+        write_results_excel(
+            all_results,
+            config.output_excel,
+            include_pivot_tables=True,
+            status_rows=all_status_rows,
+        )
         logger.info("Processing complete: %s", config.output_excel)
     else:
         logger.warning("No results to save")

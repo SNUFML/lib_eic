@@ -165,6 +165,8 @@ def write_results_excel(
     results: List[Dict],
     output_path: str,
     include_pivot_tables: bool = True,
+    *,
+    status_rows: Optional[List[Dict]] = None,
 ) -> None:
     """Write analysis results to Excel file.
 
@@ -172,21 +174,28 @@ def write_results_excel(
         results: List of result dictionaries.
         output_path: Path to output Excel file.
         include_pivot_tables: Whether to include per-target pivot tables.
+        status_rows: Optional list of per-target status rows (includes filtered and
+            failed extractions) to write to a separate sheet.
     """
-    if not results:
+    if not results and not status_rows:
         logger.warning("No results to save")
         return
 
     logger.info("Saving results to: %s", output_path)
 
-    df_results = pd.DataFrame(results)
+    df_results = pd.DataFrame(results) if results else pd.DataFrame()
+    df_status = pd.DataFrame(status_rows) if status_rows else None
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         # Main results sheet
         df_results.to_excel(writer, sheet_name="All_Features", index=False)
         logger.debug("Wrote %d rows to All_Features sheet", len(df_results))
 
-        if not include_pivot_tables:
+        if df_status is not None and not df_status.empty:
+            df_status.to_excel(writer, sheet_name="Target_Status", index=False)
+            logger.debug("Wrote %d rows to Target_Status sheet", len(df_status))
+
+        if not include_pivot_tables or df_results.empty:
             return
 
         # Create per-target sheets with pivot tables

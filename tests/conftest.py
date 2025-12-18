@@ -7,13 +7,14 @@ import numpy as np
 @pytest.fixture
 def sample_eic_data():
     """Generate sample EIC data for testing."""
+    rng = np.random.default_rng(0)
     # Create a Gaussian-like peak
     rt = np.linspace(0, 10, 100)
     center = 5.0
     sigma = 0.5
     intensity = 1e6 * np.exp(-((rt - center) ** 2) / (2 * sigma ** 2))
     # Add some noise
-    intensity += np.random.normal(0, 1000, intensity.shape)
+    intensity += rng.normal(0, 1000, intensity.shape)
     intensity = np.maximum(intensity, 0)  # No negative intensities
     return rt, intensity
 
@@ -21,8 +22,9 @@ def sample_eic_data():
 @pytest.fixture
 def noisy_eic_data():
     """Generate noisy EIC data without clear peak."""
+    rng = np.random.default_rng(1)
     rt = np.linspace(0, 10, 100)
-    intensity = np.random.normal(1000, 500, rt.shape)
+    intensity = rng.normal(1000, 500, rt.shape)
     intensity = np.maximum(intensity, 0)
     return rt, intensity
 

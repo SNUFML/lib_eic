@@ -232,6 +232,9 @@ with RawFileReader("sample.raw") as reader:
 * **All_Features Sheet**: Complete results table
   - Formula-based: RawFile, Mode, Formula, Adduct, mz_theoretical, RT_min, Intensity, Area, GaussianScore, PeakQuality, HasMS2
   - Direct m/z: RawFile, File name, mixture, Compound name, Polarity, mz_target, RT_min, Intensity, Area, GaussianScore, PeakQuality, HasMS2
+* **Target_Status Sheet**: Per-target processing status table (includes targets that were not reported as features)
+  - Adds `EICGenerated` (whether chromatogram extraction returned data) and `FilteredOut` (below `--min-intensity`)
+  - Helps identify compounds present in the input Excel that failed EIC extraction or were excluded by filtering
 
 * **Per-Target Sheets**: Pivot tables for each Formula / Compound name
   - **Area Table**: Peak areas across samples and adducts

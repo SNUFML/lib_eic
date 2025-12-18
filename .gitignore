@@ -166,3 +166,4 @@ Raw
 tests/test_raw
 tests/EIC_Plots_Export/
 tests/benchmark_results*.xlsx
+EIC_Plots_Export
