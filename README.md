@@ -142,12 +142,20 @@ Common options:
 - `--raw-folder`: Path to folder containing .raw files (default: `./raw`)
 - `--input`: Input Excel file path (default: `file_list.xlsx`)
 - `--output`: Output Excel file path (default: `Final_Result_With_Plots.xlsx`)
+- `--no-pivots`: Disable per-target pivot table sheets (faster for large runs)
 - `--ppm`: Mass tolerance in ppm (default: `10.0`)
 - `--no-plots`: Disable EIC plot generation
 - `--no-fitting`: Disable Gaussian fitting
 - `--no-ms2`: Disable MS2 indexing/matching
+- `--workers N`: Number of worker processes (default: auto; use `1` for sequential)
+- `--sequential`: Force sequential processing (equivalent to `--workers 1`)
+- `--no-progress`: Disable the tqdm progress bar
 - `-v, --verbose`: Enable verbose output
 - `--help`: Show all available options
+
+Performance notes:
+- Parallelism is **file-level** (one worker per raw file); if you only have 1 raw file, speedup is limited.
+- If CPU usage stays low, the run is likely bottlenecked by disk I/O (`.raw` reads) or output writing (Excel/plots); try fewer workers and/or an SSD, and consider `--no-plots`/`--no-pivots`.
 
 ### Option 2: YAML Configuration File
 
@@ -170,14 +178,18 @@ raw_data_folder: "./raw"
 input_excel: "file_list.xlsx"
 input_sheets: ["RP", "HILIC"]
 output_excel: "Final_Result_With_Plots.xlsx"
+include_pivot_tables: true
+show_progress: true
+num_workers: 0          # 0 = auto, 1 = sequential, N = N workers
+parallel_mode: "auto"   # "auto", "sequential", "file" (file-level multiprocessing)
 ppm_tolerance: 10.0
 min_peak_intensity: 100000
- enable_fitting: true
- enable_plotting: true
- enable_ms2: true
- export_plot_folder: "EIC_Plots_Export"
- area_method: "sum"  # or "trapz"
- ms2_match_mode: "rt_linked"  # or "global"
+enable_fitting: true
+enable_plotting: true
+enable_ms2: true
+export_plot_folder: "EIC_Plots_Export"
+area_method: "sum"  # or "trapz"
+ms2_match_mode: "rt_linked"  # or "global"
 ```
 
 ### Option 3: Python API

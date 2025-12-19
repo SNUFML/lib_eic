@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "lib_eic"
-version = "0.1.0"
+version = "0.2.1"
 authors = [
   { name = "Jihyun Chun", email = "jihyun5311@snu.ac.kr" },
   { name = "Daehwan Kim", email = "kdh5358@snu.ac.kr"    },
@@ -36,6 +36,7 @@ dependencies = [
     "numpy>=1.24.0,<2.0",
     "fisher-py>=1.0.0",
     "pythonnet>=3.0.0",
+    "tqdm>=4.66.0,<5.0",
 ]
 
 [project.optional-dependencies]
