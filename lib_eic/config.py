@@ -22,6 +22,7 @@ class Config:
     output_excel: str = "Final_Result_With_Plots.xlsx"
     export_plot_folder: str = "EIC_Plots_Export"
     include_pivot_tables: bool = True
+    show_progress: bool = True
 
     # Mass tolerance
     ppm_tolerance: float = 10.0
@@ -123,6 +124,7 @@ class Config:
             "output_excel": self.output_excel,
             "export_plot_folder": self.export_plot_folder,
             "include_pivot_tables": bool(self.include_pivot_tables),
+            "show_progress": bool(self.show_progress),
             "ppm_tolerance": self.ppm_tolerance,
             "min_peak_intensity": self.min_peak_intensity,
             "enable_fitting": self.enable_fitting,
