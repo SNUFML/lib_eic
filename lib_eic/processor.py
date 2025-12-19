@@ -1,5 +1,6 @@
 """Main processing logic for LCMS Adduct Finder."""
 
+from concurrent.futures import as_completed
 import logging
 import os
 import re
@@ -27,6 +28,7 @@ from .analysis.eic import (
 )
 from .analysis.fitting import fit_gaussian_and_score, score_to_quality_label
 from .analysis.ms2 import build_ms2_index, match_ms2
+from .parallel import create_process_pool, resolve_max_workers, should_use_process_pool
 from .validation import validate_mode
 
 logger = logging.getLogger(__name__)
@@ -246,6 +248,126 @@ def extract_file_suffix(raw_file_path: Path, partial_filename: str) -> str:
         return stem[len(partial) :]
 
     return ""
+
+
+def _status_rows_for_formula_file_failure(
+    *,
+    raw_file_id: str,
+    mode: str,
+    formulas: List[str],
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for formula in formulas:
+        rows.append(
+            {
+                "RawFile": raw_file_id,
+                "Mode": mode,
+                "Formula": formula,
+                "Adduct": None,
+                "mz_theoretical": None,
+                "RT_min": None,
+                "Intensity": None,
+                "Area": None,
+                "GaussianScore": None,
+                "PeakQuality": None,
+                "HasMS2": None,
+                "EICGenerated": False,
+                "FilteredOut": False,
+            }
+        )
+    return rows
+
+
+def _status_rows_for_direct_mz_file_failure(
+    *,
+    raw_file_id: str,
+    targets_records: List[Dict[str, Any]],
+    lc_mode: str,
+    polarity: str,
+    partial_filename: str,
+) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for record in targets_records:
+        mz_raw = record.get("m/z")
+        mz_val = pd.to_numeric(mz_raw, errors="coerce")
+        mz_target = float(mz_val) if pd.notna(mz_val) else None
+
+        compound_raw = record.get("Compound name")
+        compound_name = "" if pd.isna(compound_raw) else str(compound_raw).strip()
+        if not compound_name:
+            compound_name = "Unknown"
+
+        rows.append(
+            {
+                "RawFile": raw_file_id,
+                "File name": str(partial_filename),
+                "lc_mode": str(lc_mode),
+                "mixture": _normalize_mixture_value(record.get("mixture")),
+                "Compound name": compound_name,
+                "Polarity": polarity,
+                "mz_target": mz_target,
+                "RT_min": None,
+                "Intensity": None,
+                "Area": None,
+                "GaussianScore": None,
+                "PeakQuality": None,
+                "HasMS2": None,
+                "EICGenerated": False,
+                "FilteredOut": False,
+            }
+        )
+    return rows
+
+
+def _process_single_file_formula_worker(
+    *,
+    raw_file_path: str,
+    formulas: List[str],
+    mode: str,
+    config_dict: Dict[str, Any],
+    raw_file_id: str,
+) -> Dict[str, Any]:
+    config = Config.from_dict(config_dict)
+    status_rows: List[Dict[str, Any]] = []
+    with RawFileReader(raw_file_path) as reader:
+        results = process_raw_file(
+            reader,
+            formulas,
+            mode,
+            config,
+            raw_file_id=raw_file_id,
+            status_rows=status_rows,
+        )
+    return {"results": results, "status_rows": status_rows, "raw_file_id": raw_file_id}
+
+
+def _process_single_file_direct_mz_worker(
+    *,
+    raw_file_path: str,
+    targets_records: List[Dict[str, Any]],
+    config_dict: Dict[str, Any],
+    lc_mode: str,
+    polarity: str,
+    partial_filename: str,
+    file_suffix: str,
+    raw_file_id: str,
+) -> Dict[str, Any]:
+    config = Config.from_dict(config_dict)
+    targets_df = pd.DataFrame.from_records(targets_records)
+    status_rows: List[Dict[str, Any]] = []
+    with RawFileReader(str(raw_file_path)) as reader:
+        results = process_raw_file_direct_mz(
+            reader=reader,
+            targets_df=targets_df,
+            lc_mode=lc_mode,
+            polarity=polarity,
+            partial_filename=partial_filename,
+            file_suffix=file_suffix,
+            config=config,
+            raw_file_id=raw_file_id,
+            status_rows=status_rows,
+        )
+    return {"results": results, "status_rows": status_rows, "raw_file_id": raw_file_id}
 
 
 def process_raw_file(
@@ -683,6 +805,9 @@ def process_all_formula_based(config: Config) -> None:
 
     raw_entries = _collect_raw_entries_recursive(config.raw_data_folder)
 
+    config_dict = config.to_dict()
+    work_items: List[Dict[str, Any]] = []
+
     for idx, ((raw_filename, mode), group_df) in enumerate(grouped):
         raw_filename = str(raw_filename).strip()
         if not raw_filename:
@@ -745,24 +870,13 @@ def process_all_formula_based(config: Config) -> None:
                 )
             elif not candidates:
                 logger.error("File not found: %s", full_file_path)
-                for formula in formulas:
-                    all_status_rows.append(
-                        {
-                            "RawFile": raw_file_id,
-                            "Mode": mode,
-                            "Formula": formula,
-                            "Adduct": None,
-                            "mz_theoretical": None,
-                            "RT_min": None,
-                            "Intensity": None,
-                            "Area": None,
-                            "GaussianScore": None,
-                            "PeakQuality": None,
-                            "HasMS2": None,
-                            "EICGenerated": False,
-                            "FilteredOut": False,
-                        }
+                all_status_rows.extend(
+                    _status_rows_for_formula_file_failure(
+                        raw_file_id=raw_file_id,
+                        mode=mode,
+                        formulas=formulas,
                     )
+                )
                 continue
             else:
                 logger.error(
@@ -771,58 +885,110 @@ def process_all_formula_based(config: Config) -> None:
                     config.raw_data_folder,
                     ", ".join(str(p) for p in candidates[:10]),
                 )
-                for formula in formulas:
-                    all_status_rows.append(
-                        {
-                            "RawFile": raw_file_id,
-                            "Mode": mode,
-                            "Formula": formula,
-                            "Adduct": None,
-                            "mz_theoretical": None,
-                            "RT_min": None,
-                            "Intensity": None,
-                            "Area": None,
-                            "GaussianScore": None,
-                            "PeakQuality": None,
-                            "HasMS2": None,
-                            "EICGenerated": False,
-                            "FilteredOut": False,
-                        }
+                all_status_rows.extend(
+                    _status_rows_for_formula_file_failure(
+                        raw_file_id=raw_file_id,
+                        mode=mode,
+                        formulas=formulas,
                     )
+                )
                 continue
 
+        work_items.append(
+            {
+                "raw_file_path": str(full_file_path),
+                "formulas": formulas,
+                "mode": mode,
+                "config_dict": config_dict,
+                "raw_file_id": raw_file_id,
+            }
+        )
+
+    use_pool = should_use_process_pool(
+        parallel_mode=config.parallel_mode,
+        num_workers=config.num_workers,
+        num_items=len(work_items),
+    )
+    if use_pool:
+        max_workers = resolve_max_workers(config.num_workers, num_items=len(work_items))
+        logger.info(
+            "Processing %d raw files with %d workers (spawn)",
+            len(work_items),
+            max_workers or 1,
+        )
+    else:
+        logger.info(
+            "Processing %d raw files sequentially (parallel_mode=%s, num_workers=%d)",
+            len(work_items),
+            config.parallel_mode,
+            config.num_workers,
+        )
+
+    if use_pool:
         try:
-            with RawFileReader(full_file_path) as reader:
-                file_results = process_raw_file(
-                    reader,
-                    formulas,
-                    mode,
-                    config,
-                    raw_file_id=raw_file_id,
-                    status_rows=all_status_rows,
-                )
-                all_results.extend(file_results)
+            results_by_item: List[List[Dict[str, Any]]] = [[] for _ in work_items]
+            status_by_item: List[List[Dict[str, Any]]] = [[] for _ in work_items]
+            with create_process_pool(
+                max_workers=max_workers,
+                log_level=config.log_level,
+                log_handlers=list(logging.getLogger().handlers),
+            ) as executor:
+                futures = {
+                    executor.submit(_process_single_file_formula_worker, **item): idx
+                    for idx, item in enumerate(work_items)
+                }
+                completed = 0
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    item = work_items[idx]
+                    try:
+                        result = future.result()
+                    except Exception as e:
+                        logger.error(
+                            "Failed to process file %s: %s", item["raw_file_id"], e
+                        )
+                        status_by_item[idx] = _status_rows_for_formula_file_failure(
+                            raw_file_id=item["raw_file_id"],
+                            mode=item["mode"],
+                            formulas=item["formulas"],
+                        )
+                        continue
+
+                    results_by_item[idx] = result.get("results", [])
+                    status_by_item[idx] = result.get("status_rows", [])
+                    completed += 1
+                    logger.info(
+                        "Completed %d/%d: %s",
+                        completed,
+                        len(work_items),
+                        item["raw_file_id"],
+                    )
+            for idx in range(len(work_items)):
+                all_results.extend(results_by_item[idx])
+                all_status_rows.extend(status_by_item[idx])
         except Exception as e:
-            logger.error("Failed to process file %s: %s", raw_filename, e)
-            for formula in formulas:
-                all_status_rows.append(
-                    {
-                        "RawFile": raw_file_id,
-                        "Mode": mode,
-                        "Formula": formula,
-                        "Adduct": None,
-                        "mz_theoretical": None,
-                        "RT_min": None,
-                        "Intensity": None,
-                        "Area": None,
-                        "GaussianScore": None,
-                        "PeakQuality": None,
-                        "HasMS2": None,
-                        "EICGenerated": False,
-                        "FilteredOut": False,
-                    }
+            logger.warning(
+                "Parallel processing failed, falling back to sequential: %s", e
+            )
+            use_pool = False
+
+    if not use_pool:
+        for item in work_items:
+            try:
+                result = _process_single_file_formula_worker(**item)
+            except Exception as e:
+                logger.error("Failed to process file %s: %s", item["raw_file_id"], e)
+                all_status_rows.extend(
+                    _status_rows_for_formula_file_failure(
+                        raw_file_id=item["raw_file_id"],
+                        mode=item["mode"],
+                        formulas=item["formulas"],
+                    )
                 )
-            continue
+                continue
+
+            all_results.extend(result.get("results", []))
+            all_status_rows.extend(result.get("status_rows", []))
 
     # Save results
     if all_results or all_status_rows:
@@ -835,7 +1001,7 @@ def process_all_formula_based(config: Config) -> None:
         write_results_excel(
             all_results,
             config.output_excel,
-            include_pivot_tables=True,
+            include_pivot_tables=bool(config.include_pivot_tables),
             status_rows=all_status_rows,
         )
         logger.info("Processing complete: %s", config.output_excel)
@@ -873,6 +1039,8 @@ def process_all_direct_mz(config: Config) -> None:
     logger.info("Processing %d file groups (direct m/z)", total_groups)
 
     group_counter = 0
+    config_dict = config.to_dict()
+    work_items: List[Dict[str, Any]] = []
 
     for lc_mode, meta_data in lc_mode_data.items():
         logger.info("Processing LC mode: %s (%d rows)", lc_mode, len(meta_data))
@@ -945,6 +1113,8 @@ def process_all_direct_mz(config: Config) -> None:
                     )
                 continue
 
+            targets_records = group_df.to_dict(orient="records")
+
             for raw_file_path in matching_files:
                 run_label = _infer_run_label(raw_file_path, raw_search_root)
                 file_suffix = extract_file_suffix(raw_file_path, partial_filename)
@@ -966,54 +1136,108 @@ def process_all_direct_mz(config: Config) -> None:
                     raw_file_id,
                 )
 
-                try:
-                    with RawFileReader(str(raw_file_path)) as reader:
-                        file_results = process_raw_file_direct_mz(
-                            reader=reader,
-                            targets_df=group_df,
-                            lc_mode=lc_mode,
-                            polarity=polarity_norm,
-                            partial_filename=partial_filename,
-                            file_suffix=file_suffix,
-                            config=config,
-                            raw_file_id=raw_file_id,
-                            status_rows=all_status_rows,
-                        )
-                        all_results.extend(file_results)
-                except Exception as e:
-                    logger.error("Failed to process file %s: %s", raw_file_path, e)
-                    for _, row in group_df.iterrows():
-                        mz_raw = row.get("m/z")
-                        mz_val = pd.to_numeric(mz_raw, errors="coerce")
-                        mz_target = float(mz_val) if pd.notna(mz_val) else None
+                work_items.append(
+                    {
+                        "raw_file_path": str(raw_file_path),
+                        "targets_records": targets_records,
+                        "config_dict": config_dict,
+                        "lc_mode": str(lc_mode),
+                        "polarity": polarity_norm,
+                        "partial_filename": partial_filename,
+                        "file_suffix": file_suffix,
+                        "raw_file_id": raw_file_id,
+                    }
+                )
 
-                        compound_raw = row.get("Compound name")
-                        compound_name = (
-                            "" if pd.isna(compound_raw) else str(compound_raw).strip()
-                        )
-                        if not compound_name:
-                            compound_name = "Unknown"
+    use_pool = should_use_process_pool(
+        parallel_mode=config.parallel_mode,
+        num_workers=config.num_workers,
+        num_items=len(work_items),
+    )
+    if use_pool:
+        max_workers = resolve_max_workers(config.num_workers, num_items=len(work_items))
+        logger.info(
+            "Processing %d raw files with %d workers (spawn)",
+            len(work_items),
+            max_workers or 1,
+        )
+    else:
+        logger.info(
+            "Processing %d raw files sequentially (parallel_mode=%s, num_workers=%d)",
+            len(work_items),
+            config.parallel_mode,
+            config.num_workers,
+        )
 
-                        all_status_rows.append(
-                            {
-                                "RawFile": raw_file_id,
-                                "File name": str(partial_filename),
-                                "lc_mode": str(lc_mode),
-                                "mixture": _normalize_mixture_value(row.get("mixture")),
-                                "Compound name": compound_name,
-                                "Polarity": polarity_norm,
-                                "mz_target": mz_target,
-                                "RT_min": None,
-                                "Intensity": None,
-                                "Area": None,
-                                "GaussianScore": None,
-                                "PeakQuality": None,
-                                "HasMS2": None,
-                                "EICGenerated": False,
-                                "FilteredOut": False,
-                            }
+    if use_pool:
+        try:
+            results_by_item: List[List[Dict[str, Any]]] = [[] for _ in work_items]
+            status_by_item: List[List[Dict[str, Any]]] = [[] for _ in work_items]
+            with create_process_pool(
+                max_workers=max_workers,
+                log_level=config.log_level,
+                log_handlers=list(logging.getLogger().handlers),
+            ) as executor:
+                futures = {
+                    executor.submit(_process_single_file_direct_mz_worker, **item): idx
+                    for idx, item in enumerate(work_items)
+                }
+                completed = 0
+                for future in as_completed(futures):
+                    idx = futures[future]
+                    item = work_items[idx]
+                    try:
+                        result = future.result()
+                    except Exception as e:
+                        logger.error(
+                            "Failed to process file %s: %s", item["raw_file_id"], e
                         )
-                    continue
+                        status_by_item[idx] = _status_rows_for_direct_mz_file_failure(
+                            raw_file_id=item["raw_file_id"],
+                            targets_records=item["targets_records"],
+                            lc_mode=item["lc_mode"],
+                            polarity=item["polarity"],
+                            partial_filename=item["partial_filename"],
+                        )
+                        continue
+
+                    results_by_item[idx] = result.get("results", [])
+                    status_by_item[idx] = result.get("status_rows", [])
+                    completed += 1
+                    logger.info(
+                        "Completed %d/%d: %s",
+                        completed,
+                        len(work_items),
+                        item["raw_file_id"],
+                    )
+            for idx in range(len(work_items)):
+                all_results.extend(results_by_item[idx])
+                all_status_rows.extend(status_by_item[idx])
+        except Exception as e:
+            logger.warning(
+                "Parallel processing failed, falling back to sequential: %s", e
+            )
+            use_pool = False
+
+    if not use_pool:
+        for item in work_items:
+            try:
+                result = _process_single_file_direct_mz_worker(**item)
+            except Exception as e:
+                logger.error("Failed to process file %s: %s", item["raw_file_id"], e)
+                all_status_rows.extend(
+                    _status_rows_for_direct_mz_file_failure(
+                        raw_file_id=item["raw_file_id"],
+                        targets_records=item["targets_records"],
+                        lc_mode=item["lc_mode"],
+                        polarity=item["polarity"],
+                        partial_filename=item["partial_filename"],
+                    )
+                )
+                continue
+
+            all_results.extend(result.get("results", []))
+            all_status_rows.extend(result.get("status_rows", []))
 
     if all_results or all_status_rows:
         logger.info(
@@ -1025,7 +1249,7 @@ def process_all_direct_mz(config: Config) -> None:
         write_results_excel(
             all_results,
             config.output_excel,
-            include_pivot_tables=True,
+            include_pivot_tables=bool(config.include_pivot_tables),
             status_rows=all_status_rows,
         )
         logger.info("Processing complete: %s", config.output_excel)

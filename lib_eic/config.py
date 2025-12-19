@@ -21,6 +21,7 @@ class Config:
     input_sheet: str = "Final"
     output_excel: str = "Final_Result_With_Plots.xlsx"
     export_plot_folder: str = "EIC_Plots_Export"
+    include_pivot_tables: bool = True
 
     # Mass tolerance
     ppm_tolerance: float = 10.0
@@ -55,6 +56,14 @@ class Config:
     log_level: str = "INFO"
     log_file: Optional[str] = None
 
+    # Parallelization
+    # - num_workers <= 0: auto
+    # - num_workers == 1: sequential
+    # - num_workers > 1: that many worker processes
+    num_workers: int = 0
+    # "auto" (default), "sequential", "file", "task"
+    parallel_mode: str = "auto"
+
     def __post_init__(self) -> None:
         """Convert string paths to Path objects if needed."""
         if isinstance(self.raw_data_folder, str):
@@ -86,6 +95,16 @@ class Config:
                 "Expected 'sum' or 'trapz'."
             )
 
+        # Normalize and validate parallel_mode
+        if self.parallel_mode is None:
+            self.parallel_mode = "auto"
+        self.parallel_mode = str(self.parallel_mode).strip().lower()
+        if self.parallel_mode not in ("auto", "sequential", "file", "task"):
+            raise ValueError(
+                f"Invalid parallel_mode: {self.parallel_mode!r}. "
+                "Expected 'auto', 'sequential', 'file', or 'task'."
+            )
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Config":
         """Create a Config instance from a dictionary."""
@@ -103,6 +122,7 @@ class Config:
             "input_sheet": self.input_sheet,
             "output_excel": self.output_excel,
             "export_plot_folder": self.export_plot_folder,
+            "include_pivot_tables": bool(self.include_pivot_tables),
             "ppm_tolerance": self.ppm_tolerance,
             "min_peak_intensity": self.min_peak_intensity,
             "enable_fitting": self.enable_fitting,
@@ -118,6 +138,8 @@ class Config:
             "enabled_adducts": self.enabled_adducts,
             "log_level": self.log_level,
             "log_file": self.log_file,
+            "num_workers": self.num_workers,
+            "parallel_mode": self.parallel_mode,
         }
 
 

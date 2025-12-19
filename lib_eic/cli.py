@@ -66,6 +66,12 @@ Examples:
         help="Output Excel file for results (default: Final_Result_With_Plots.xlsx)",
     )
     io_group.add_argument(
+        "--no-pivots",
+        dest="disable_pivot_tables",
+        action="store_true",
+        help="Disable writing per-target pivot table sheets (faster)",
+    )
+    io_group.add_argument(
         "-r",
         "--raw-folder",
         dest="raw_data_folder",
@@ -146,6 +152,22 @@ Examples:
         choices=["sum", "trapz"],
         help="Peak area calculation method (default: sum)",
     )
+    proc_group.add_argument(
+        "--workers",
+        dest="num_workers",
+        type=int,
+        metavar="N",
+        help=(
+            "Number of parallel worker processes (default: auto). "
+            "Use 1 to force sequential."
+        ),
+    )
+    proc_group.add_argument(
+        "--sequential",
+        dest="sequential",
+        action="store_true",
+        help="Force sequential processing (equivalent to --workers 1)",
+    )
 
     # Logging options
     log_group = parser.add_argument_group("Logging")
@@ -206,6 +228,8 @@ def build_config_from_args(args: argparse.Namespace):
         config.input_excel = args.input_excel
     if args.output_excel:
         config.output_excel = args.output_excel
+    if getattr(args, "disable_pivot_tables", False):
+        config.include_pivot_tables = False
     if args.raw_data_folder:
         config.raw_data_folder = Path(args.raw_data_folder)
     if args.input_sheet:
@@ -227,6 +251,13 @@ def build_config_from_args(args: argparse.Namespace):
         config.area_method = args.area_method
     if args.log_file:
         config.log_file = args.log_file
+
+    if getattr(args, "num_workers", None) is not None:
+        config.num_workers = int(args.num_workers)
+
+    if getattr(args, "sequential", False):
+        config.parallel_mode = "sequential"
+        config.num_workers = 1
 
     # Set log level based on verbosity
     if args.verbose:
@@ -259,44 +290,94 @@ def main(args: Optional[List[str]] = None) -> int:
     Returns:
         Exit code (0 for success, non-zero for errors).
     """
-    parsed_args = parse_args(args)
+    import multiprocessing as mp
+    import os
+    import signal
+    import threading
 
-    # Handle --generate-config
-    if parsed_args.generate_config:
+    mp.freeze_support()
+
+    # Ctrl+C behavior:
+    # - First Ctrl+C: raise KeyboardInterrupt to start shutdown.
+    # - Second Ctrl+C (or if shutdown stalls): force an immediate exit.
+    #
+    # Keep the handler installed for true CLI runs (args is None) so it also
+    # applies during interpreter shutdown/atexit.
+    restore_sigint = args is not None
+    prev_sigint = signal.getsignal(signal.SIGINT)
+
+    interrupt_state = {"count": 0, "timer": None}
+
+    def _force_exit() -> None:
+        os._exit(130)
+
+    def _sigint_handler(_signum, _frame) -> None:
+        interrupt_state["count"] += 1
+        if interrupt_state["count"] >= 2:
+            _force_exit()
+
+        if interrupt_state["timer"] is None:
+            t = threading.Timer(5.0, _force_exit)
+            t.daemon = True
+            t.start()
+            interrupt_state["timer"] = t
+
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, _sigint_handler)
+
+    try:
+        parsed_args = parse_args(args)
+
+        # Handle --generate-config
+        if parsed_args.generate_config:
+            try:
+                generate_default_config(parsed_args.generate_config)
+                return 0
+            except Exception as e:
+                print(f"Error generating config: {e}", file=sys.stderr)
+                return 1
+
+        # Build config from args
         try:
-            generate_default_config(parsed_args.generate_config)
-            return 0
+            config = build_config_from_args(parsed_args)
         except Exception as e:
-            print(f"Error generating config: {e}", file=sys.stderr)
+            print(f"Configuration error: {e}", file=sys.stderr)
             return 1
 
-    # Build config from args
-    try:
-        config = build_config_from_args(parsed_args)
-    except Exception as e:
-        print(f"Configuration error: {e}", file=sys.stderr)
-        return 1
+        # Setup logging
+        from .logging_setup import setup_logging
 
-    # Setup logging
-    from .logging_setup import setup_logging
+        setup_logging(level=config.log_level, log_file=config.log_file)
 
-    setup_logging(level=config.log_level, log_file=config.log_file)
+        # Run processing
+        from .processor import process_all
 
-    # Run processing
-    from .processor import process_all
+        try:
+            process_all(config)
+            return 0
+        except KeyboardInterrupt:
+            print("\nInterrupted by user", file=sys.stderr)
+            return 130
+        except Exception as e:
+            import logging
 
-    try:
-        process_all(config)
-        return 0
-    except KeyboardInterrupt:
-        print("\nInterrupted by user", file=sys.stderr)
-        return 130
-    except Exception as e:
-        import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("Processing failed: %s", e)
+            return 1
+    finally:
+        if restore_sigint:
+            try:
+                signal.signal(signal.SIGINT, prev_sigint)
+            except Exception:
+                pass
 
-        logger = logging.getLogger(__name__)
-        logger.exception("Processing failed: %s", e)
-        return 1
+            t = interrupt_state.get("timer")
+            if t is not None:
+                try:
+                    t.cancel()
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":
