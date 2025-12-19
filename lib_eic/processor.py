@@ -29,6 +29,7 @@ from .analysis.eic import (
 from .analysis.fitting import fit_gaussian_and_score, score_to_quality_label
 from .analysis.ms2 import build_ms2_index, match_ms2
 from .parallel import create_process_pool, resolve_max_workers, should_use_process_pool
+from .progress import progress_bar, should_show_progress
 from .validation import validate_mode
 
 logger = logging.getLogger(__name__)
@@ -937,32 +938,46 @@ def process_all_formula_based(config: Config) -> None:
                     executor.submit(_process_single_file_formula_worker, **item): idx
                     for idx, item in enumerate(work_items)
                 }
-                completed = 0
-                for future in as_completed(futures):
-                    idx = futures[future]
-                    item = work_items[idx]
-                    try:
-                        result = future.result()
-                    except Exception as e:
-                        logger.error(
-                            "Failed to process file %s: %s", item["raw_file_id"], e
-                        )
-                        status_by_item[idx] = _status_rows_for_formula_file_failure(
-                            raw_file_id=item["raw_file_id"],
-                            mode=item["mode"],
-                            formulas=item["formulas"],
-                        )
-                        continue
+                succeeded = 0
+                failed = 0
+                show_progress = should_show_progress(bool(config.show_progress))
+                with progress_bar(
+                    total=len(work_items),
+                    desc="Processing raw files",
+                    enabled=show_progress,
+                    unit="file",
+                ) as pbar:
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        item = work_items[idx]
+                        pbar.set_postfix_str(str(item.get("raw_file_id", "")))
+                        try:
+                            result = future.result()
+                        except Exception as e:
+                            failed += 1
+                            logger.error(
+                                "Failed to process file %s: %s",
+                                item["raw_file_id"],
+                                e,
+                            )
+                            status_by_item[idx] = _status_rows_for_formula_file_failure(
+                                raw_file_id=item["raw_file_id"],
+                                mode=item["mode"],
+                                formulas=item["formulas"],
+                            )
+                        else:
+                            succeeded += 1
+                            results_by_item[idx] = result.get("results", [])
+                            status_by_item[idx] = result.get("status_rows", [])
+                        finally:
+                            pbar.update(1)
 
-                    results_by_item[idx] = result.get("results", [])
-                    status_by_item[idx] = result.get("status_rows", [])
-                    completed += 1
-                    logger.info(
-                        "Completed %d/%d: %s",
-                        completed,
-                        len(work_items),
-                        item["raw_file_id"],
-                    )
+                logger.info(
+                    "Processed %d/%d raw files (%d failed)",
+                    succeeded,
+                    len(work_items),
+                    failed,
+                )
             for idx in range(len(work_items)):
                 all_results.extend(results_by_item[idx])
                 all_status_rows.extend(status_by_item[idx])
@@ -973,22 +988,44 @@ def process_all_formula_based(config: Config) -> None:
             use_pool = False
 
     if not use_pool:
-        for item in work_items:
-            try:
-                result = _process_single_file_formula_worker(**item)
-            except Exception as e:
-                logger.error("Failed to process file %s: %s", item["raw_file_id"], e)
-                all_status_rows.extend(
-                    _status_rows_for_formula_file_failure(
-                        raw_file_id=item["raw_file_id"],
-                        mode=item["mode"],
-                        formulas=item["formulas"],
+        succeeded = 0
+        failed = 0
+        show_progress = should_show_progress(bool(config.show_progress))
+        with progress_bar(
+            total=len(work_items),
+            desc="Processing raw files",
+            enabled=show_progress,
+            unit="file",
+        ) as pbar:
+            for item in work_items:
+                pbar.set_postfix_str(str(item.get("raw_file_id", "")))
+                try:
+                    result = _process_single_file_formula_worker(**item)
+                except Exception as e:
+                    failed += 1
+                    logger.error(
+                        "Failed to process file %s: %s", item["raw_file_id"], e
                     )
-                )
-                continue
+                    all_status_rows.extend(
+                        _status_rows_for_formula_file_failure(
+                            raw_file_id=item["raw_file_id"],
+                            mode=item["mode"],
+                            formulas=item["formulas"],
+                        )
+                    )
+                else:
+                    succeeded += 1
+                    all_results.extend(result.get("results", []))
+                    all_status_rows.extend(result.get("status_rows", []))
+                finally:
+                    pbar.update(1)
 
-            all_results.extend(result.get("results", []))
-            all_status_rows.extend(result.get("status_rows", []))
+        logger.info(
+            "Processed %d/%d raw files (%d failed)",
+            succeeded,
+            len(work_items),
+            failed,
+        )
 
     # Save results
     if all_results or all_status_rows:
@@ -1182,34 +1219,50 @@ def process_all_direct_mz(config: Config) -> None:
                     executor.submit(_process_single_file_direct_mz_worker, **item): idx
                     for idx, item in enumerate(work_items)
                 }
-                completed = 0
-                for future in as_completed(futures):
-                    idx = futures[future]
-                    item = work_items[idx]
-                    try:
-                        result = future.result()
-                    except Exception as e:
-                        logger.error(
-                            "Failed to process file %s: %s", item["raw_file_id"], e
-                        )
-                        status_by_item[idx] = _status_rows_for_direct_mz_file_failure(
-                            raw_file_id=item["raw_file_id"],
-                            targets_records=item["targets_records"],
-                            lc_mode=item["lc_mode"],
-                            polarity=item["polarity"],
-                            partial_filename=item["partial_filename"],
-                        )
-                        continue
+                succeeded = 0
+                failed = 0
+                show_progress = should_show_progress(bool(config.show_progress))
+                with progress_bar(
+                    total=len(work_items),
+                    desc="Processing raw files",
+                    enabled=show_progress,
+                    unit="file",
+                ) as pbar:
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        item = work_items[idx]
+                        pbar.set_postfix_str(str(item.get("raw_file_id", "")))
+                        try:
+                            result = future.result()
+                        except Exception as e:
+                            failed += 1
+                            logger.error(
+                                "Failed to process file %s: %s",
+                                item["raw_file_id"],
+                                e,
+                            )
+                            status_by_item[idx] = (
+                                _status_rows_for_direct_mz_file_failure(
+                                    raw_file_id=item["raw_file_id"],
+                                    targets_records=item["targets_records"],
+                                    lc_mode=item["lc_mode"],
+                                    polarity=item["polarity"],
+                                    partial_filename=item["partial_filename"],
+                                )
+                            )
+                        else:
+                            succeeded += 1
+                            results_by_item[idx] = result.get("results", [])
+                            status_by_item[idx] = result.get("status_rows", [])
+                        finally:
+                            pbar.update(1)
 
-                    results_by_item[idx] = result.get("results", [])
-                    status_by_item[idx] = result.get("status_rows", [])
-                    completed += 1
-                    logger.info(
-                        "Completed %d/%d: %s",
-                        completed,
-                        len(work_items),
-                        item["raw_file_id"],
-                    )
+                logger.info(
+                    "Processed %d/%d raw files (%d failed)",
+                    succeeded,
+                    len(work_items),
+                    failed,
+                )
             for idx in range(len(work_items)):
                 all_results.extend(results_by_item[idx])
                 all_status_rows.extend(status_by_item[idx])
@@ -1220,24 +1273,46 @@ def process_all_direct_mz(config: Config) -> None:
             use_pool = False
 
     if not use_pool:
-        for item in work_items:
-            try:
-                result = _process_single_file_direct_mz_worker(**item)
-            except Exception as e:
-                logger.error("Failed to process file %s: %s", item["raw_file_id"], e)
-                all_status_rows.extend(
-                    _status_rows_for_direct_mz_file_failure(
-                        raw_file_id=item["raw_file_id"],
-                        targets_records=item["targets_records"],
-                        lc_mode=item["lc_mode"],
-                        polarity=item["polarity"],
-                        partial_filename=item["partial_filename"],
+        succeeded = 0
+        failed = 0
+        show_progress = should_show_progress(bool(config.show_progress))
+        with progress_bar(
+            total=len(work_items),
+            desc="Processing raw files",
+            enabled=show_progress,
+            unit="file",
+        ) as pbar:
+            for item in work_items:
+                pbar.set_postfix_str(str(item.get("raw_file_id", "")))
+                try:
+                    result = _process_single_file_direct_mz_worker(**item)
+                except Exception as e:
+                    failed += 1
+                    logger.error(
+                        "Failed to process file %s: %s", item["raw_file_id"], e
                     )
-                )
-                continue
+                    all_status_rows.extend(
+                        _status_rows_for_direct_mz_file_failure(
+                            raw_file_id=item["raw_file_id"],
+                            targets_records=item["targets_records"],
+                            lc_mode=item["lc_mode"],
+                            polarity=item["polarity"],
+                            partial_filename=item["partial_filename"],
+                        )
+                    )
+                else:
+                    succeeded += 1
+                    all_results.extend(result.get("results", []))
+                    all_status_rows.extend(result.get("status_rows", []))
+                finally:
+                    pbar.update(1)
 
-            all_results.extend(result.get("results", []))
-            all_status_rows.extend(result.get("status_rows", []))
+        logger.info(
+            "Processed %d/%d raw files (%d failed)",
+            succeeded,
+            len(work_items),
+            failed,
+        )
 
     if all_results or all_status_rows:
         logger.info(

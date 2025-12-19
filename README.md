@@ -149,6 +149,7 @@ Common options:
 - `--no-ms2`: Disable MS2 indexing/matching
 - `--workers N`: Number of worker processes (default: auto; use `1` for sequential)
 - `--sequential`: Force sequential processing (equivalent to `--workers 1`)
+- `--no-progress`: Disable the tqdm progress bar
 - `-v, --verbose`: Enable verbose output
 - `--help`: Show all available options
 
@@ -178,6 +179,7 @@ input_excel: "file_list.xlsx"
 input_sheets: ["RP", "HILIC"]
 output_excel: "Final_Result_With_Plots.xlsx"
 include_pivot_tables: true
+show_progress: true
 num_workers: 0          # 0 = auto, 1 = sequential, N = N workers
 parallel_mode: "auto"   # "auto", "sequential", "file" (file-level multiprocessing)
 ppm_tolerance: 10.0

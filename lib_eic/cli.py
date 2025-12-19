@@ -169,6 +169,23 @@ Examples:
         help="Force sequential processing (equivalent to --workers 1)",
     )
 
+    # UI options
+    ui_group = parser.add_argument_group("UI")
+    progress_group = ui_group.add_mutually_exclusive_group()
+    progress_group.add_argument(
+        "--progress",
+        dest="show_progress",
+        action="store_true",
+        help="Show a tqdm progress bar (default: enabled when interactive)",
+    )
+    progress_group.add_argument(
+        "--no-progress",
+        dest="show_progress",
+        action="store_false",
+        help="Disable tqdm progress bar output",
+    )
+    progress_group.set_defaults(show_progress=None)
+
     # Logging options
     log_group = parser.add_argument_group("Logging")
     log_group.add_argument(
@@ -251,6 +268,9 @@ def build_config_from_args(args: argparse.Namespace):
         config.area_method = args.area_method
     if args.log_file:
         config.log_file = args.log_file
+
+    if getattr(args, "show_progress", None) is not None:
+        config.show_progress = bool(args.show_progress)
 
     if getattr(args, "num_workers", None) is not None:
         config.num_workers = int(args.num_workers)
@@ -347,8 +367,13 @@ def main(args: Optional[List[str]] = None) -> int:
 
         # Setup logging
         from .logging_setup import setup_logging
+        from .progress import should_show_progress
 
-        setup_logging(level=config.log_level, log_file=config.log_file)
+        setup_logging(
+            level=config.log_level,
+            log_file=config.log_file,
+            use_tqdm=should_show_progress(bool(config.show_progress)),
+        )
 
         # Run processing
         from .processor import process_all
