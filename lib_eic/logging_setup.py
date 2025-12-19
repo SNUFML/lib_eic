@@ -8,14 +8,14 @@ from typing import Optional
 def setup_logging(
     level: str = "INFO",
     log_file: Optional[str] = None,
-    name: str = "lcms_adduct_finder",
+    name: str = "root",
 ) -> logging.Logger:
     """Configure logging for the application.
 
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
         log_file: Optional path to log file. If None, logs only to console.
-        name: Logger name (default: lcms_adduct_finder).
+        name: Ignored (kept for backward compatibility).
 
     Returns:
         Configured logger instance.
@@ -23,8 +23,8 @@ def setup_logging(
     # Convert string level to logging constant
     numeric_level = getattr(logging, level.upper(), logging.INFO)
 
-    # Create logger
-    logger = logging.getLogger(name)
+    # Configure root logger so module loggers (lib_eic.*) inherit handlers.
+    logger = logging.getLogger()
     logger.setLevel(numeric_level)
 
     # Remove existing handlers to avoid duplicates
@@ -48,9 +48,6 @@ def setup_logging(
         file_handler.setLevel(numeric_level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
-
-    # Prevent propagation to root logger
-    logger.propagate = False
 
     return logger
 
