@@ -1,6 +1,6 @@
 """Adduct definitions and mass constants for LC-MS analysis."""
 
-from typing import Dict, Any
+from typing import Any, Dict, List, Optional
 
 # Atomic/molecular mass constants (isotopic masses)
 MASS_H = 1.0073  # Hydrogen
@@ -114,8 +114,8 @@ ADDUCT_DEFINITIONS: Dict[str, Dict[str, Any]] = {
 
 
 def get_enabled_adducts(
-    enabled_names: list = None,
-    mode: str = None,
+    enabled_names: Optional[List[str]] = None,
+    mode: Optional[str] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Get adduct definitions filtered by enabled status and ionization mode.
 

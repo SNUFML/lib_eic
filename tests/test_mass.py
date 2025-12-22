@@ -1,6 +1,5 @@
 """Tests for chemistry/mass.py module."""
 
-import pytest
 from lib_eic.chemistry.mass import (
     normalize_formula_str,
     get_exact_mass,

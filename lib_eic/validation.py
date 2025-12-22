@@ -1,6 +1,5 @@
 """Input validation for LCMS Adduct Finder."""
 
-import os
 from pathlib import Path
 from typing import List, Optional
 

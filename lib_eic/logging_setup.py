@@ -64,6 +64,7 @@ def setup_logging(
     )
 
     # Console handler
+    console_handler: logging.Handler
     if use_tqdm:
         console_handler = TqdmLoggingHandler(stream=sys.stderr)
     else:

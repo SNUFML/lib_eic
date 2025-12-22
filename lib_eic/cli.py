@@ -16,10 +16,7 @@ def create_parser() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="lib_eic",
-        description=(
-            "Automated Targeted Feature Extraction & Adduct Verification Tool "
-            "for LC-MS Data."
-        ),
+        description=("Automated Targeted Feature Extraction & Adduct Verification Tool " "for LC-MS Data."),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -65,11 +62,18 @@ Examples:
         metavar="FILE",
         help="Output Excel file for results (default: Final_Result_With_Plots.xlsx)",
     )
-    io_group.add_argument(
+    pivots_group = io_group.add_mutually_exclusive_group()
+    pivots_group.add_argument(
+        "--pivots",
+        dest="enable_pivot_tables",
+        action="store_true",
+        help="Enable writing per-target pivot table sheets",
+    )
+    pivots_group.add_argument(
         "--no-pivots",
         dest="disable_pivot_tables",
         action="store_true",
-        help="Disable writing per-target pivot table sheets (faster)",
+        help="Disable writing per-target pivot table sheets (default; faster)",
     )
     io_group.add_argument(
         "-r",
@@ -83,10 +87,7 @@ Examples:
         "--sheet",
         dest="input_sheet",
         metavar="NAME",
-        help=(
-            "Single sheet name in input Excel file (legacy; also sets --sheets). "
-            "Default: Final"
-        ),
+        help=("Single sheet name in input Excel file (legacy; also sets --sheets). " "Default: Final"),
     )
     io_group.add_argument(
         "--sheets",
@@ -157,10 +158,7 @@ Examples:
         dest="num_workers",
         type=int,
         metavar="N",
-        help=(
-            "Number of parallel worker processes (default: auto). "
-            "Use 1 to force sequential."
-        ),
+        help=("Number of parallel worker processes (default: auto). " "Use 1 to force sequential."),
     )
     proc_group.add_argument(
         "--sequential",
@@ -245,6 +243,8 @@ def build_config_from_args(args: argparse.Namespace):
         config.input_excel = args.input_excel
     if args.output_excel:
         config.output_excel = args.output_excel
+    if getattr(args, "enable_pivot_tables", False):
+        config.include_pivot_tables = True
     if getattr(args, "disable_pivot_tables", False):
         config.include_pivot_tables = False
     if args.raw_data_folder:
@@ -326,21 +326,24 @@ def main(args: Optional[List[str]] = None) -> int:
     restore_sigint = args is not None
     prev_sigint = signal.getsignal(signal.SIGINT)
 
-    interrupt_state = {"count": 0, "timer": None}
+    interrupt_count = 0
+    interrupt_timer: Optional[threading.Timer] = None
 
     def _force_exit() -> None:
         os._exit(130)
 
     def _sigint_handler(_signum, _frame) -> None:
-        interrupt_state["count"] += 1
-        if interrupt_state["count"] >= 2:
+        nonlocal interrupt_count, interrupt_timer
+
+        interrupt_count += 1
+        if interrupt_count >= 2:
             _force_exit()
 
-        if interrupt_state["timer"] is None:
+        if interrupt_timer is None:
             t = threading.Timer(5.0, _force_exit)
             t.daemon = True
             t.start()
-            interrupt_state["timer"] = t
+            interrupt_timer = t
 
         raise KeyboardInterrupt
 
@@ -397,10 +400,9 @@ def main(args: Optional[List[str]] = None) -> int:
             except Exception:
                 pass
 
-            t = interrupt_state.get("timer")
-            if t is not None:
+            if interrupt_timer is not None:
                 try:
-                    t.cancel()
+                    interrupt_timer.cancel()
                 except Exception:
                     pass
 
