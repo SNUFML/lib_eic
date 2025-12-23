@@ -4,7 +4,7 @@ build-backend = "flit_core.buildapi"
 
 [project]
 name = "lib_eic"
-version = "0.2.1"
+dynamic = ["version"]
 authors = [
   { name = "Jihyun Chun", email = "jihyun5311@snu.ac.kr" },
   { name = "Daehwan Kim", email = "kdh5358@snu.ac.kr"    },
@@ -39,6 +39,28 @@ dependencies = [
     "tqdm>=4.66.0,<5.0",
 ]
 
+[tool.pyrefly.errors]
+untyped-import = "ignore"
+
+[tool.pyrefly]
+python-version = "3.12.0"
+project-includes = ["lib_eic"]
+project-excludes = ["tests", "dist"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = [
+    "E203", # Black-compatible slicing whitespace
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py38"]
+
 [project.optional-dependencies]
 yaml = [
     "pyyaml>=6.0",
@@ -46,6 +68,9 @@ yaml = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
+    "black>=24.0",
+    "ruff>=0.1.0",
+    "pyrefly>=0.46.0",
     "pyyaml>=6.0",
 ]
 all = [

@@ -26,6 +26,37 @@ reliability of the detected signals.
 
 ---
 
+## Prerequisites
+
+This tool uses `pythonnet` and `fisher-py` to read Thermo `.raw` files, which requires a .NET runtime. Installation varies by operating system:
+
+### Windows
+
+.NET Framework is typically pre-installed on Windows 10/11. If needed, install the [.NET Runtime](https://dotnet.microsoft.com/download) (version 4.7.2 or later recommended).
+
+### Linux (Ubuntu/Debian)
+
+Install Mono runtime:
+
+```bash
+sudo apt update
+sudo apt install -y mono-complete
+```
+
+For other distributions, see the [Mono installation guide](https://www.mono-project.com/download/stable/#download-lin).
+
+### macOS
+
+Install Mono using Homebrew:
+
+```bash
+brew install mono
+```
+
+Or download the installer from the [Mono project website](https://www.mono-project.com/download/stable/#download-mac).
+
+---
+
 ## Installation
 
 ### From PyPI (recommended)
@@ -142,7 +173,8 @@ Common options:
 - `--raw-folder`: Path to folder containing .raw files (default: `./raw`)
 - `--input`: Input Excel file path (default: `file_list.xlsx`)
 - `--output`: Output Excel file path (default: `Final_Result_With_Plots.xlsx`)
-- `--no-pivots`: Disable per-target pivot table sheets (faster for large runs)
+- `--pivots`: Enable per-target pivot table sheets
+- `--no-pivots`: Disable per-target pivot table sheets (default; faster for large runs)
 - `--ppm`: Mass tolerance in ppm (default: `10.0`)
 - `--no-plots`: Disable EIC plot generation
 - `--no-fitting`: Disable Gaussian fitting
@@ -155,7 +187,7 @@ Common options:
 
 Performance notes:
 - Parallelism is **file-level** (one worker per raw file); if you only have 1 raw file, speedup is limited.
-- If CPU usage stays low, the run is likely bottlenecked by disk I/O (`.raw` reads) or output writing (Excel/plots); try fewer workers and/or an SSD, and consider `--no-plots`/`--no-pivots`.
+- If CPU usage stays low, the run is likely bottlenecked by disk I/O (`.raw` reads) or output writing (Excel/plots); try fewer workers and/or an SSD, and consider `--no-plots` and leaving pivot sheets disabled.
 
 ### Option 2: YAML Configuration File
 
@@ -178,7 +210,7 @@ raw_data_folder: "./raw"
 input_excel: "file_list.xlsx"
 input_sheets: ["RP", "HILIC"]
 output_excel: "Final_Result_With_Plots.xlsx"
-include_pivot_tables: true
+include_pivot_tables: false
 show_progress: true
 num_workers: 0          # 0 = auto, 1 = sequential, N = N workers
 parallel_mode: "auto"   # "auto", "sequential", "file" (file-level multiprocessing)
@@ -241,12 +273,10 @@ with RawFileReader("sample.raw") as reader:
 
 ### 1. Excel Report (`Final_Result_With_Plots.xlsx`)
 
-* **All_Features Sheet**: Complete results table
-  - Formula-based: RawFile, Mode, Formula, Adduct, mz_theoretical, RT_min, Intensity, Area, GaussianScore, PeakQuality, HasMS2
-  - Direct m/z: RawFile, File name, mixture, Compound name, Polarity, mz_target, RT_min, Intensity, Area, GaussianScore, PeakQuality, HasMS2
-* **Target_Status Sheet**: Per-target processing status table (includes targets that were not reported as features)
+* **All_Features Sheet**: Complete per-target results table (includes targets that were not reported as features)
   - Adds `EICGenerated` (whether chromatogram extraction returned data) and `FilteredOut` (below `--min-intensity`)
-  - Helps identify compounds present in the input Excel that failed EIC extraction or were excluded by filtering
+  - Formula-based: RawFile, Mode, Formula, Adduct, mz_theoretical, RT_min, Intensity, Area, GaussianScore, PeakQuality, HasMS2, EICGenerated, FilteredOut
+  - Direct m/z: num, RawFile, File name, lc_mode, mixture, Compound name, Polarity, mz_target, RT_min, Intensity, Area, GaussianScore, PeakQuality, HasMS2, EICGenerated, FilteredOut
 
 * **Per-Target Sheets**: Pivot tables for each Formula / Compound name
   - **Area Table**: Peak areas across samples and adducts

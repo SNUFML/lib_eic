@@ -74,11 +74,12 @@ def build_targets(
         List of Target objects.
     """
     targets: List[Target] = []
+    formulas_list = list(formulas)
 
     # Get adducts filtered by mode and enabled status
     adducts = get_enabled_adducts(enabled_names=enabled_adducts, mode=mode)
 
-    for formula in formulas:
+    for formula in formulas_list:
         exact_mass = get_exact_mass(formula)
         if exact_mass is None:
             logger.warning("Could not calculate mass for formula: %s", formula)
@@ -89,11 +90,9 @@ def build_targets(
             if target_mz is None:
                 continue
 
-            targets.append(
-                Target(formula=formula, adduct=adduct_name, mz=float(target_mz))
-            )
+            targets.append(Target(formula=formula, adduct=adduct_name, mz=float(target_mz)))
 
-    logger.debug("Built %d targets from %d formulas", len(targets), len(list(formulas)))
+    logger.debug("Built %d targets from %d formulas", len(targets), len(formulas_list))
     return targets
 
 
@@ -163,9 +162,16 @@ def calculate_area(
         return 0.0
 
     if method == "trapz":
-        # Use np.trapezoid (NumPy 2.0+) if available, otherwise np.trapz
-        trapz_func = getattr(np, "trapezoid", np.trapz)
-        return float(trapz_func(intensity, rt_min))
+        if intensity.size < 2:
+            return 0.0
+
+        # NumPy 2.0+ renamed `trapz` -> `trapezoid` (and may deprecate `trapz`).
+        # Implement a small fallback to avoid relying on optional attributes.
+        if hasattr(np, "trapezoid"):
+            return float(np.trapezoid(intensity, rt_min))
+
+        dx = np.diff(rt_min)
+        return float(np.sum((intensity[1:] + intensity[:-1]) * dx / 2.0))
 
     return float(np.sum(intensity))
 

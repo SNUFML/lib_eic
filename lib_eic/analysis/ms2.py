@@ -193,9 +193,7 @@ def match_ms2(
         return True, best
 
     else:
-        raise ValueError(
-            f"Unknown MS2 match mode: {mode!r}. Expected 'rt_linked' or 'global'."
-        )
+        raise ValueError(f"Unknown MS2 match mode: {mode!r}. Expected 'rt_linked' or 'global'.")
 
 
 def extract_ms2_spectrum(

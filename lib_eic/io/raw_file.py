@@ -3,11 +3,13 @@
 import logging
 import os
 import re
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, List, Optional, Tuple, cast
 
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+RT_UNIT_SECONDS_THRESHOLD = 200.0
 
 
 def sanitize_filename_component(value: str) -> str:
@@ -33,6 +35,8 @@ class RawFileReader:
     and avoid expensive eager indexing done by fisher_py's higher-level RawFile wrapper.
     """
 
+    _raw_access: Any
+
     def __init__(self, file_path: str):
         """Open a raw file.
 
@@ -52,11 +56,10 @@ class RawFileReader:
 
             raw_access = RawFileReaderAdapter.file_factory(file_path)
             raw_access.select_instrument(Device.MS, 1)
-            self._raw_access = raw_access
+            self._raw_access: Any = raw_access
         except ImportError as e:
             raise ImportError(
-                "fisher-py is required for reading .raw files. "
-                "Install with: pip install fisher-py pythonnet"
+                "fisher-py is required for reading .raw files. " "Install with: pip install fisher-py pythonnet"
             ) from e
         except Exception as e:
             raise RuntimeError(f"Failed to open raw file: {e}") from e
@@ -102,7 +105,9 @@ class RawFileReader:
             return "minutes"
 
         rt_max = float(np.nanmax(rt_arr))
-        if rt_max > 200:
+        # Heuristic: values above typical LC run lengths (in minutes) likely mean
+        # the vendor API is returning RT in seconds.
+        if rt_max > RT_UNIT_SECONDS_THRESHOLD:
             return "seconds"
 
         if rt_arr.size > 1:
@@ -174,9 +179,7 @@ class RawFileReader:
         settings.filter = "ms"
         settings.mass_ranges = [Range.create(float(target_mz), float(target_mz))]
 
-        chrom_data = self._raw_access.get_chromatogram_data(
-            [settings], -1, -1, mass_opts
-        )
+        chrom_data = self._raw_access.get_chromatogram_data([settings], -1, -1, mass_opts)
         rt_arr = chrom_data.positions_array[0]
         int_arr = chrom_data.intensities_array[0]
 
@@ -229,11 +232,9 @@ class RawFileReader:
         from fisher_py.data.business.range import Range
         from fisher_py.data.tolerance_units import ToleranceUnits
 
-        get_chrom_data = getattr(self._raw_access, "get_chromatogram_data", None)
+        get_chrom_data = cast(Any, getattr(self._raw_access, "get_chromatogram_data", None))
         if not callable(get_chrom_data):
-            raise RuntimeError(
-                "get_chromatogram_data is unavailable on this raw file access object."
-            )
+            raise RuntimeError("get_chromatogram_data is unavailable on this raw file access object.")
 
         mass_opts = MassOptions()
         mass_opts.tolerance_units = ToleranceUnits.ppm
@@ -255,32 +256,93 @@ class RawFileReader:
                 settings_list.append(settings)
 
             # Extract chromatograms
-            chrom_data = get_chrom_data(settings_list, -1, -1, mass_opts)
+            chrom_data: Any = get_chrom_data(settings_list, -1, -1, mass_opts)
             positions = chrom_data.positions_array
             intensities = chrom_data.intensities_array
 
             if len(positions) != len(batch_mzs) or len(intensities) != len(batch_mzs):
-                raise RuntimeError(
-                    f"ChromatogramData size mismatch: expected {len(batch_mzs)} traces"
-                )
+                raise RuntimeError(f"ChromatogramData size mismatch: expected {len(batch_mzs)} traces")
 
-            # Process each chromatogram
-            for rt_arr, int_arr in zip(positions, intensities):
-                rt_min = self._normalize_rt_to_minutes(np.asarray(rt_arr, dtype=float))
-                intensity = np.asarray(int_arr, dtype=float)
+            shared_rt_min: Optional[np.ndarray] = None
+            shared_rt_min_unsorted: Optional[np.ndarray] = None
+            shared_sort_order: Optional[np.ndarray] = None
+            can_share_rt = False
 
-                # Handle size mismatch
-                n = min(rt_min.size, intensity.size)
-                rt_min = rt_min[:n]
-                intensity = intensity[:n]
+            if len(positions) > 0:
+                try:
+                    first_rt_raw = np.asarray(positions[0], dtype=float)
+                except Exception:
+                    first_rt_raw = None
 
-                # Sort by RT if needed
-                if rt_min.size > 1 and np.any(np.diff(rt_min) < 0):
-                    order = np.argsort(rt_min)
-                    rt_min = rt_min[order]
-                    intensity = intensity[order]
+                if first_rt_raw is not None:
+                    shared_rt_min_unsorted = self._normalize_rt_to_minutes(first_rt_raw)
+                    shared_rt_min = shared_rt_min_unsorted
 
-                results.append((rt_min, intensity))
+                    if shared_rt_min.size > 1 and np.any(np.diff(shared_rt_min) < 0):
+                        shared_sort_order = np.argsort(shared_rt_min)
+                        shared_rt_min = shared_rt_min[shared_sort_order]
+
+                    shared_len = int(shared_rt_min.size)
+                    if shared_len == 0:
+                        can_share_rt = True
+                    else:
+                        # Quick sampling check to ensure all traces share the same RT axis
+                        sample_indices: List[int] = [0, shared_len - 1]
+                        if shared_len >= 4:
+                            sample_indices.extend([shared_len // 2, shared_len // 4, (3 * shared_len) // 4])
+                        sample_indices = sorted(set(i for i in sample_indices if 0 <= i < shared_len))
+
+                        scale = 1.0
+                        if self._rt_unit_inferred == "seconds":
+                            scale = 1.0 / 60.0
+
+                        can_share_rt = True
+                        for trace_idx, (pos_arr, int_arr) in enumerate(zip(positions, intensities)):
+                            if len(pos_arr) != shared_len or len(int_arr) != shared_len:
+                                can_share_rt = False
+                                break
+                            if trace_idx == 0 or not sample_indices:
+                                continue
+                            try:
+                                for sample_idx in sample_indices:
+                                    rt_val = float(pos_arr[sample_idx]) * scale
+                                    if not np.isclose(
+                                        rt_val,
+                                        float(shared_rt_min_unsorted[sample_idx]),
+                                        rtol=0.0,
+                                        atol=1e-6,
+                                    ):
+                                        can_share_rt = False
+                                        break
+                            except Exception:
+                                can_share_rt = False
+                            if not can_share_rt:
+                                break
+
+            if can_share_rt and shared_rt_min is not None:
+                for int_arr in intensities:
+                    intensity = np.asarray(int_arr, dtype=float)
+                    if shared_sort_order is not None:
+                        intensity = intensity[shared_sort_order]
+                    results.append((shared_rt_min, intensity))
+            else:
+                # Fall back to per-trace processing (handles mismatched RT/intensity sizes safely)
+                for rt_arr, int_arr in zip(positions, intensities):
+                    rt_min = self._normalize_rt_to_minutes(np.asarray(rt_arr, dtype=float))
+                    intensity = np.asarray(int_arr, dtype=float)
+
+                    # Handle size mismatch
+                    n = min(rt_min.size, intensity.size)
+                    rt_min = rt_min[:n]
+                    intensity = intensity[:n]
+
+                    # Sort by RT if needed
+                    if rt_min.size > 1 and np.any(np.diff(rt_min) < 0):
+                        order = np.argsort(rt_min)
+                        rt_min = rt_min[order]
+                        intensity = intensity[order]
+
+                    results.append((rt_min, intensity))
 
         return results
 
@@ -290,7 +352,7 @@ class RawFileReader:
         Returns:
             True if MS2 scan event access is supported.
         """
-        get_scan_events = getattr(self._raw_access, "get_scan_events", None)
+        get_scan_events = cast(Any, getattr(self._raw_access, "get_scan_events", None))
         return callable(get_scan_events)
 
     def get_scan_range(self) -> Tuple[int, int]:
@@ -325,10 +387,11 @@ class RawFileReader:
         """
         import math
 
-        rt_fn = getattr(self._raw_access, "retention_time_from_scan_number", None)
+        rt_fn = cast(Any, getattr(self._raw_access, "retention_time_from_scan_number", None))
         if callable(rt_fn):
             try:
-                rt = float(rt_fn(int(scan_no)))
+                rt_raw: Any = rt_fn(int(scan_no))
+                rt = float(rt_raw)
                 if not math.isfinite(rt):
                     return None
                 return rt if rt <= 200 else rt / 60.0
@@ -350,11 +413,11 @@ class RawFileReader:
         Raises:
             RuntimeError: If scan events API is unavailable.
         """
-        get_scan_events = getattr(self._raw_access, "get_scan_events", None)
+        get_scan_events = cast(Any, getattr(self._raw_access, "get_scan_events", None))
         if not callable(get_scan_events):
             raise RuntimeError("get_scan_events is unavailable")
 
-        return get_scan_events(first_scan, last_scan)
+        return cast(List[Any], get_scan_events(first_scan, last_scan))
 
     def get_scan(self, scan_no: int) -> Tuple[np.ndarray, np.ndarray, Any, Any]:
         """Get spectrum data for a scan number.
@@ -370,19 +433,14 @@ class RawFileReader:
         scan_no = int(scan_no)
         scan_event = self._raw_access.get_scan_event_for_scan_number(scan_no)
 
-        if (
-            getattr(scan_event, "mass_analyzer", None)
-            == MassAnalyzerType.MassAnalyzerFTMS
-        ):
+        if getattr(scan_event, "mass_analyzer", None) == MassAnalyzerType.MassAnalyzerFTMS:
             spectrum = self._raw_access.get_centroid_stream(scan_no, False)
             mz_array = np.array(spectrum.masses)
             intensity_array = np.array(spectrum.intensities)
             charges = np.array(spectrum.charges)
         else:
             stats = self._raw_access.get_scan_stats_for_scan_number(scan_no)
-            spectrum = self._raw_access.get_segmented_scan_from_scan_number(
-                scan_no, stats
-            )
+            spectrum = self._raw_access.get_segmented_scan_from_scan_number(scan_no, stats)
             mz_array = np.array(spectrum.positions)
             intensity_array = np.array(spectrum.intensities)
             charges = np.zeros(mz_array.shape)

@@ -2,7 +2,7 @@
 LCMS Adduct Finder - Automated Targeted Feature Extraction & Adduct Verification Tool for LC-MS Data.
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.2"
 
 from .config import Config, load_config
 from .chemistry.mass import get_exact_mass, calculate_target_mz

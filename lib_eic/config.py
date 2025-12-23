@@ -3,7 +3,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Any
-import os
 
 
 @dataclass
@@ -21,11 +20,14 @@ class Config:
     input_sheet: str = "Final"
     output_excel: str = "Final_Result_With_Plots.xlsx"
     export_plot_folder: str = "EIC_Plots_Export"
-    include_pivot_tables: bool = True
+    include_pivot_tables: bool = False
     show_progress: bool = True
 
     # Mass tolerance
     ppm_tolerance: float = 10.0
+
+    # Chromatogram extraction
+    chromatogram_batch_size: int = 256
 
     # Peak filtering
     min_peak_intensity: float = 100000.0
@@ -36,7 +38,7 @@ class Config:
 
     # Plotting controls
     enable_plotting: bool = True
-    plot_dpi: int = 120
+    plot_dpi: int = 300
 
     # MS2 matching settings
     enable_ms2: bool = True
@@ -71,39 +73,42 @@ class Config:
             self.raw_data_folder = Path(self.raw_data_folder)
 
         # Normalize input_sheets
-        if self.input_sheets is None:
+        input_sheets_value: Any = self.input_sheets
+        if input_sheets_value is None:
             self.input_sheets = []
-        elif isinstance(self.input_sheets, str):
-            self.input_sheets = [
-                s.strip() for s in str(self.input_sheets).split(",") if s.strip()
-            ]
+        elif isinstance(input_sheets_value, str):
+            self.input_sheets = [s.strip() for s in str(input_sheets_value).split(",") if s.strip()]
         else:
-            self.input_sheets = [
-                str(s).strip() for s in self.input_sheets if str(s).strip()
-            ]
+            self.input_sheets = [str(s).strip() for s in input_sheets_value if str(s).strip()]
 
         # Validate ms2_match_mode
         if self.ms2_match_mode not in ("rt_linked", "global"):
-            raise ValueError(
-                f"Invalid ms2_match_mode: {self.ms2_match_mode!r}. "
-                "Expected 'rt_linked' or 'global'."
-            )
+            raise ValueError(f"Invalid ms2_match_mode: {self.ms2_match_mode!r}. " "Expected 'rt_linked' or 'global'.")
 
         # Validate area_method
         if self.area_method not in ("sum", "trapz"):
+            raise ValueError(f"Invalid area_method: {self.area_method!r}. " "Expected 'sum' or 'trapz'.")
+
+        try:
+            chromatogram_batch_size = int(self.chromatogram_batch_size)
+        except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"Invalid area_method: {self.area_method!r}. "
-                "Expected 'sum' or 'trapz'."
+                f"Invalid chromatogram_batch_size: {self.chromatogram_batch_size!r}. Expected a positive integer."
+            ) from exc
+        if chromatogram_batch_size <= 0:
+            raise ValueError(
+                f"Invalid chromatogram_batch_size: {self.chromatogram_batch_size!r}. Expected a positive integer."
             )
+        self.chromatogram_batch_size = chromatogram_batch_size
 
         # Normalize and validate parallel_mode
-        if self.parallel_mode is None:
+        parallel_mode_value: Any = self.parallel_mode
+        if parallel_mode_value is None:
             self.parallel_mode = "auto"
         self.parallel_mode = str(self.parallel_mode).strip().lower()
         if self.parallel_mode not in ("auto", "sequential", "file", "task"):
             raise ValueError(
-                f"Invalid parallel_mode: {self.parallel_mode!r}. "
-                "Expected 'auto', 'sequential', 'file', or 'task'."
+                f"Invalid parallel_mode: {self.parallel_mode!r}. " "Expected 'auto', 'sequential', 'file', or 'task'."
             )
 
     @classmethod
@@ -126,6 +131,7 @@ class Config:
             "include_pivot_tables": bool(self.include_pivot_tables),
             "show_progress": bool(self.show_progress),
             "ppm_tolerance": self.ppm_tolerance,
+            "chromatogram_batch_size": self.chromatogram_batch_size,
             "min_peak_intensity": self.min_peak_intensity,
             "enable_fitting": self.enable_fitting,
             "fit_rt_window_min": self.fit_rt_window_min,
@@ -168,10 +174,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
     try:
         import yaml
     except ImportError:
-        raise ImportError(
-            "PyYAML is required for config file support. "
-            "Install with: pip install pyyaml"
-        )
+        raise ImportError("PyYAML is required for config file support. " "Install with: pip install pyyaml")
 
     with open(config_file, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
@@ -180,9 +183,7 @@ def load_config(config_path: Optional[str] = None) -> Config:
         return Config()
 
     if not isinstance(data, dict):
-        raise ValueError(
-            f"Config file must contain a YAML dictionary, got: {type(data)}"
-        )
+        raise ValueError(f"Config file must contain a YAML dictionary, got: {type(data)}")
 
     return Config.from_dict(data)
 
@@ -197,10 +198,7 @@ def save_config(config: Config, config_path: str) -> None:
     try:
         import yaml
     except ImportError:
-        raise ImportError(
-            "PyYAML is required for config file support. "
-            "Install with: pip install pyyaml"
-        )
+        raise ImportError("PyYAML is required for config file support. " "Install with: pip install pyyaml")
 
     config_file = Path(config_path)
     config_file.parent.mkdir(parents=True, exist_ok=True)

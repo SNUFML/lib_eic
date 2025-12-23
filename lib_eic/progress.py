@@ -44,11 +44,12 @@ def progress_bar(
         return
 
     try:
-        from tqdm.auto import tqdm
+        from tqdm.auto import tqdm as _tqdm
     except Exception:
         yield _NullProgressBar()
         return
 
+    tqdm: Any = _tqdm
     with tqdm(
         total=int(total),
         desc=str(desc),
