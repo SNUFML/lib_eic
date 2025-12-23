@@ -14,9 +14,7 @@ from logging.handlers import QueueHandler, QueueListener
 from typing import Iterable, Iterator, Optional, Sequence
 
 
-def _shutdown_executor(
-    executor: ProcessPoolExecutor, *, wait: bool, cancel_futures: bool
-) -> None:
+def _shutdown_executor(executor: ProcessPoolExecutor, *, wait: bool, cancel_futures: bool) -> None:
     """Shutdown an executor with best-effort Python version compatibility."""
     try:
         executor.shutdown(wait=wait, cancel_futures=cancel_futures)
@@ -81,9 +79,7 @@ def resolve_max_workers(num_workers: int, *, num_items: int) -> Optional[int]:
     return max(1, min(int(num_workers), num_items))
 
 
-def should_use_process_pool(
-    *, parallel_mode: str, num_workers: int, num_items: int
-) -> bool:
+def should_use_process_pool(*, parallel_mode: str, num_workers: int, num_items: int) -> bool:
     """Return True if we should use file-level multiprocessing."""
     mode = str(parallel_mode or "").strip().lower()
     if mode in {"sequential", "off", "none"}:

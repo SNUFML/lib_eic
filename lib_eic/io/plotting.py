@@ -121,17 +121,16 @@ class _EICPlotter:
             self.ax.set_xlim(0.0, 1.0)
 
 
-_EIC_PLOTTER: Optional[_EICPlotter] = None
+def create_eic_plotter() -> Optional[_EICPlotter]:
+    """Create a plotter instance.
 
-
-def _get_eic_plotter() -> Optional[_EICPlotter]:
-    global _EIC_PLOTTER
-    if _EIC_PLOTTER is None:
-        try:
-            _EIC_PLOTTER = _EICPlotter()
-        except Exception:
-            _EIC_PLOTTER = None
-    return _EIC_PLOTTER
+    Returns:
+        A plotter instance, or None if matplotlib is unavailable.
+    """
+    try:
+        return _EICPlotter()
+    except Exception:
+        return None
 
 
 def save_eic_plot(
@@ -145,6 +144,11 @@ def save_eic_plot(
     fit_params: Optional[Tuple[float, float, float]] = None,
     score: float = 0.0,
     dpi: int = 120,
+    *,
+    apex_rt: Optional[float] = None,
+    max_intensity: Optional[float] = None,
+    apex_idx: Optional[int] = None,
+    plotter: Optional[_EICPlotter] = None,
 ) -> Optional[str]:
     """Save an EIC plot as a PNG file.
 
@@ -159,50 +163,58 @@ def save_eic_plot(
         fit_params: Optional Gaussian fit parameters (a, x0, sigma).
         score: Gaussian fit R-squared score.
         dpi: Plot resolution.
+        apex_rt: Optional pre-computed apex retention time (minutes).
+        max_intensity: Optional pre-computed maximum intensity.
+        apex_idx: Optional pre-computed apex index (used if ``apex_rt`` is not provided).
+        plotter: Optional plotter instance to reuse across calls.
 
     Returns:
         Path to saved plot, or None if saving failed.
     """
-    plotter = _get_eic_plotter()
-    if plotter is None:
+    plotter_instance = plotter or create_eic_plotter()
+    if plotter_instance is None:
         return None
 
     try:
         os.makedirs(output_folder, exist_ok=True)
 
         # Convert to relative abundance (0-100%)
-        max_int = np.max(int_arr) if int_arr.size > 0 else 1.0
-        if max_int == 0:
+        max_int = float(max_intensity) if max_intensity is not None else float(np.max(int_arr)) if int_arr.size else 1.0
+        if not np.isfinite(max_int) or max_int == 0.0:
             max_int = 1.0
         rel_abundance = (int_arr / max_int) * 100.0
 
         # Calculate apex RT and peak height
-        apex_idx = np.argmax(int_arr) if int_arr.size > 0 else 0
-        apex_rt = rt_arr[apex_idx] if rt_arr.size > 0 else 0.0
+        apex_rt_val: float
+        if apex_rt is not None:
+            apex_rt_val = float(apex_rt)
+        else:
+            idx = int(apex_idx) if apex_idx is not None else int(np.argmax(int_arr)) if int_arr.size else 0
+            if rt_arr.size:
+                idx = max(0, min(idx, int(rt_arr.size - 1)))
+                apex_rt_val = float(rt_arr[idx])
+            else:
+                apex_rt_val = 0.0
         peak_height = max_int
 
         title_text = f"{formula} {adduct}  |  m/z = {mz_val:.4f}\nFile: {raw_filename}"
-        annotation_text = (
-            f"Apex RT: {apex_rt:.3f} min    |    Peak Height: {peak_height:.2e}"
-        )
-        plotter.update(
+        annotation_text = f"Apex RT: {apex_rt_val:.3f} min    |    Peak Height: {peak_height:.2e}"
+        plotter_instance.update(
             rt_arr=rt_arr,
             rel_abundance=rel_abundance,
-            apex_rt=float(apex_rt),
+            apex_rt=apex_rt_val,
             title=title_text,
             annotation_text=annotation_text,
         )
 
         # Generate safe filename
         safe_form = "".join(c for c in formula if c.isalnum())
-        safe_add = (
-            adduct.replace("[", "").replace("]", "").replace("+", "p").replace("-", "m")
-        )
+        safe_add = adduct.replace("[", "").replace("]", "").replace("+", "p").replace("-", "m")
         safe_raw = _sanitize_component(raw_filename)
         save_name = f"{safe_form}_{safe_add}_{safe_raw}.png"
 
         save_path = os.path.join(output_folder, save_name)
-        _save_png(plotter.fig, save_path, dpi=dpi)
+        _save_png(plotter_instance.fig, save_path, dpi=dpi)
 
         logger.debug("Saved plot: %s", save_path)
         return save_path
@@ -276,6 +288,11 @@ def save_eic_plot_direct_mz(
     score: float = 0.0,
     dpi: int = 120,
     num_prefix: str = "",
+    *,
+    apex_rt: Optional[float] = None,
+    max_intensity: Optional[float] = None,
+    apex_idx: Optional[int] = None,
+    plotter: Optional[_EICPlotter] = None,
 ) -> Optional[str]:
     """Save an EIC plot as a PNG file (direct m/z input format).
 
@@ -284,9 +301,13 @@ def save_eic_plot_direct_mz(
 
     Filename:
         {num_prefix}_{compound_name}_{polarity}_{mixture}{file_suffix}.png
+
+    Notes:
+        Pass a ``plotter`` instance to reuse a single figure across multiple
+        plot saves within the same process.
     """
-    plotter = _get_eic_plotter()
-    if plotter is None:
+    plotter_instance = plotter or create_eic_plotter()
+    if plotter_instance is None:
         return None
 
     del fit_params, score  # reserved for future plot overlays
@@ -304,14 +325,22 @@ def save_eic_plot_direct_mz(
         os.makedirs(plot_dir, exist_ok=True)
 
         # Convert to relative abundance (0-100%)
-        max_int = np.max(int_arr) if int_arr.size > 0 else 1.0
-        if max_int == 0:
+        max_int = float(max_intensity) if max_intensity is not None else float(np.max(int_arr)) if int_arr.size else 1.0
+        if not np.isfinite(max_int) or max_int == 0.0:
             max_int = 1.0
         rel_abundance = (int_arr / max_int) * 100.0
 
         # Calculate apex RT and peak height
-        apex_idx = np.argmax(int_arr) if int_arr.size > 0 else 0
-        apex_rt = rt_arr[apex_idx] if rt_arr.size > 0 else 0.0
+        apex_rt_val: float
+        if apex_rt is not None:
+            apex_rt_val = float(apex_rt)
+        else:
+            idx = int(apex_idx) if apex_idx is not None else int(np.argmax(int_arr)) if int_arr.size else 0
+            if rt_arr.size:
+                idx = max(0, min(idx, int(rt_arr.size - 1)))
+                apex_rt_val = float(rt_arr[idx])
+            else:
+                apex_rt_val = 0.0
         peak_height = max_int
 
         compound_name_disp = str(compound_name).strip() or "Unknown"
@@ -319,14 +348,13 @@ def save_eic_plot_direct_mz(
         polarity_disp = str(polarity).strip() or "UNK"
 
         title_text = (
-            f"{compound_name_disp} | {lc_mode_disp} | {polarity_disp} | m/z = {mz_val:.4f}\n"
-            f"File: {raw_filename}"
+            f"{compound_name_disp} | {lc_mode_disp} | {polarity_disp} | m/z = {mz_val:.4f}\n" f"File: {raw_filename}"
         )
-        annotation_text = f"Apex RT: {float(apex_rt):.3f} min    |    Peak Height: {float(peak_height):.2e}"
-        plotter.update(
+        annotation_text = f"Apex RT: {apex_rt_val:.3f} min    |    Peak Height: {float(peak_height):.2e}"
+        plotter_instance.update(
             rt_arr=rt_arr,
             rel_abundance=rel_abundance,
-            apex_rt=float(apex_rt),
+            apex_rt=apex_rt_val,
             title=title_text,
             annotation_text=annotation_text,
         )
@@ -339,7 +367,7 @@ def save_eic_plot_direct_mz(
             num_prefix=num_prefix,
         )
         save_path = os.path.join(plot_dir, save_name)
-        _save_png(plotter.fig, save_path, dpi=dpi)
+        _save_png(plotter_instance.fig, save_path, dpi=dpi)
 
         logger.debug("Saved plot: %s", save_path)
         return save_path

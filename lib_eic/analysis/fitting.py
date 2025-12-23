@@ -98,7 +98,7 @@ def fit_gaussian_and_score(
                 x_data,
                 y_data,
                 p0=[a_guess, x0_guess, sigma_guess],
-                maxfev=2000,
+                maxfev=800,
             )
 
         # Calculate R-squared
@@ -108,7 +108,8 @@ def fit_gaussian_and_score(
         ss_tot = np.sum((y_data - np.mean(y_data)) ** 2)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0.0
 
-        return max(0.0, r_squared), tuple(popt)
+        fit_params = (float(popt[0]), float(popt[1]), float(popt[2]))
+        return max(0.0, r_squared), fit_params
 
     except (ValueError, RuntimeError, OptimizeWarning) as e:
         logger.debug("Gaussian fitting failed: %s", e)

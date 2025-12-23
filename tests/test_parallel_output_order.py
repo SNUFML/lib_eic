@@ -24,9 +24,7 @@ def _thread_pool(
         yield executor
 
 
-def test_process_all_formula_based_preserves_work_item_order(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_process_all_formula_based_preserves_work_item_order(monkeypatch, tmp_path: Path) -> None:
     raw_root = tmp_path / "raw"
     raw_root.mkdir()
     (raw_root / "A.raw").mkdir()
@@ -106,9 +104,7 @@ def test_process_all_formula_based_preserves_work_item_order(
     assert [r["RawFile"] for r in captured["status_rows"]] == ["A.raw", "B.raw"]
 
 
-def test_process_all_direct_mz_preserves_work_item_order(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_process_all_direct_mz_preserves_work_item_order(monkeypatch, tmp_path: Path) -> None:
     raw_root = tmp_path / "raw"
     raw_rp = raw_root / "RP"
     raw_rp.mkdir(parents=True)
@@ -137,9 +133,7 @@ def test_process_all_direct_mz_preserves_work_item_order(
         ]
     )
 
-    def fake_read_all_lc_mode_sheets(
-        *_args: Any, **_kwargs: Any
-    ) -> Dict[str, pd.DataFrame]:
+    def fake_read_all_lc_mode_sheets(*_args: Any, **_kwargs: Any) -> Dict[str, pd.DataFrame]:
         return {"RP": rp_data}
 
     def fake_worker(
@@ -193,9 +187,7 @@ def test_process_all_direct_mz_preserves_work_item_order(
         captured["results"] = list(results)
         captured["status_rows"] = list(status_rows or [])
 
-    monkeypatch.setattr(
-        processor, "read_all_lc_mode_sheets", fake_read_all_lc_mode_sheets
-    )
+    monkeypatch.setattr(processor, "read_all_lc_mode_sheets", fake_read_all_lc_mode_sheets)
     monkeypatch.setattr(processor, "_process_single_file_direct_mz_worker", fake_worker)
     monkeypatch.setattr(processor, "create_process_pool", _thread_pool)
     monkeypatch.setattr(processor, "write_results_excel", fake_write_results_excel)

@@ -1,6 +1,5 @@
 """Tests for chemistry/adducts.py module."""
 
-import pytest
 from lib_eic.chemistry.adducts import (
     ADDUCT_DEFINITIONS,
     MASS_H,
