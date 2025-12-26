@@ -1,0 +1,106 @@
+[build-system]
+requires = ["flit_core>=3.2,<4"]
+build-backend = "flit_core.buildapi"
+
+[project]
+name = "lib_eic"
+dynamic = ["version"]
+authors = [
+  { name = "Jihyun Chun", email = "jihyun5311@snu.ac.kr" },
+  { name = "Daehwan Kim", email = "kdh5358@snu.ac.kr"    },
+]
+description = "Automated Targeted Feature Extraction & Adduct Verification Tool for LC-MS Data."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Chemistry",
+]
+keywords = ["lcms", "mass-spectrometry", "metabolomics", "adduct", "chromatography"]
+
+dependencies = [
+    "pandas>=2.0.0,<3.0",
+    "openpyxl>=3.1.0,<4.0",
+    "molmass>=2022.0.0",
+    "scipy>=1.10.0,<2.0",
+    "matplotlib>=3.7.0,<4.0",
+    "numpy>=1.24.0,<2.0",
+    "fisher-py>=1.0.0",
+    "pythonnet>=3.0.0",
+    "tqdm>=4.66.0,<5.0",
+]
+
+[tool.pyrefly.errors]
+untyped-import = "ignore"
+
+[tool.pyrefly]
+python-version = "3.12.0"
+project-includes = ["lib_eic"]
+project-excludes = ["tests", "dist"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = [
+    "E203", # Black-compatible slicing whitespace
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py38"]
+
+[project.optional-dependencies]
+yaml = [
+    "pyyaml>=6.0",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "black>=24.0",
+    "ruff>=0.1.0",
+    "pyrefly>=0.46.0",
+    "pyyaml>=6.0",
+]
+all = [
+    "pyyaml>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/SNUFML/lib_eic"
+Repository = "https://github.com/SNUFML/lib_eic"
+Issues = "https://github.com/SNUFML/lib_eic/issues"
+
+[project.scripts]
+lib_eic = "lib_eic.cli:main"
+
+[tool.flit.module]
+name = "lib_eic"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["lib_eic"]
+omit = ["tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
